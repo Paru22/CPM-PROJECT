@@ -1,0 +1,14 @@
+{
+  "extends": "expo/tsconfig.base",
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    ".expo/types/**/*.ts",
+    "expo-env.d.ts",
+    "app/index.jsx",
+    "nativewind-env.d.ts",
+    "app/Tabs/Teacherdashboard/**/*.ts",
+    "app/Tabs/Teacherdashboard/**/*.tsx"
+  ],
+  "exclude": ["node_modules", "babel.config.js", "metro.config.js"]
+}
