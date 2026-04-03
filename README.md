@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Welcome to your Expo app 👋# College Management App
 
 A mobile application built using Expo and React Native to manage college activities such as student and teacher login, attendance, marks, and notes.
@@ -69,3 +70,6 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+=======
+# CPM-PROJECT
+>>>>>>> d347351d7cd7601d21964ee6136593c93b365276
