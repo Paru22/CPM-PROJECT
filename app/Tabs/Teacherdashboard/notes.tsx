@@ -1,20 +1,22 @@
-import React, { useState, useEffect } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  FlatList,
-  ActivityIndicator,
-  Linking,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    Linking,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { doc, updateDoc, getDoc } from "firebase/firestore";
-import { db } from "../../../config/firebaseConfig";
-import Colors from "../../../assets/images/colors";
+import { db } from "../../../config/firebaseConfig.native";
+import { useTheme } from "../../../context/ThemeContext";
 
 interface Note {
   id: string;
@@ -26,6 +28,7 @@ interface Note {
 export default function TeacherUploadNotesPage() {
   const router = useRouter();
   const { teacherId } = useLocalSearchParams();
+  const { colors, theme, toggleTheme } = useTheme();
 
   // convert teacherId to a string
   const finalTeacherId = Array.isArray(teacherId) ? teacherId[0] : teacherId;
@@ -36,13 +39,9 @@ export default function TeacherUploadNotesPage() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [loadingNotes, setLoadingNotes] = useState(true);
 
-  useEffect(() => {
-    if (finalTeacherId) {
-      fetchNotes();
-    }
-  }, [finalTeacherId]);
-
-  const fetchNotes = async () => {
+  // ✅ Define fetchNotes FIRST with useCallback
+  const fetchNotes = useCallback(async () => {
+    if (!finalTeacherId) return;
     try {
       const teacherRef = doc(db, "teachers", finalTeacherId);
       const snapshot = await getDoc(teacherRef);
@@ -64,7 +63,12 @@ export default function TeacherUploadNotesPage() {
     } finally {
       setLoadingNotes(false);
     }
-  };
+  }, [finalTeacherId]);
+
+  // ✅ Now useEffect can safely depend on fetchNotes
+  useEffect(() => {
+    fetchNotes();
+  }, [fetchNotes]);
 
   const handleUpload = async () => {
     if (!name || !link) {
@@ -88,37 +92,26 @@ export default function TeacherUploadNotesPage() {
     try {
       const teacherRef = doc(db, "teachers", finalTeacherId);
 
-      // Step 1: Read teacher document
       const snapshot = await getDoc(teacherRef);
-
       if (!snapshot.exists()) {
         Alert.alert("Error", "Teacher does not exist in database.");
         setUploading(false);
         return;
       }
 
-      // Step 2: Get existing notes or set empty map
       const existingNotes = snapshot.data().notes || {};
-
-      // Step 3: Generate a new note ID
       const noteId = `note_${Date.now()}`;
-
-      // Step 4: Add new note
       existingNotes[noteId] = {
         name,
         link,
         createdAt: new Date().toISOString(),
       };
 
-      // Step 5: Update Firestore with full notes object
       await updateDoc(teacherRef, { notes: existingNotes });
 
       Alert.alert("Success", "Note uploaded successfully!");
-
       setName("");
       setLink("");
-
-      // Refresh notes list
       fetchNotes();
     } catch (error) {
       console.error("Upload error:", error);
@@ -129,63 +122,79 @@ export default function TeacherUploadNotesPage() {
   };
 
   const renderNoteItem = ({ item }: { item: Note }) => (
-    <View style={styles.noteItem}>
-      <Text style={styles.noteText}>Name: {item.name}</Text>
+    <View style={[styles.noteItem, { backgroundColor: colors.card }]}>
+      <Text style={[styles.noteText, { color: colors.textDark }]}>Name: {item.name}</Text>
       <TouchableOpacity onPress={() => Linking.openURL(item.link)}>
-        <Text style={[styles.noteText, styles.linkText]}>Link: {item.link}</Text>
+        <Text style={[styles.noteText, styles.linkText, { color: colors.secondary }]}>
+          Link: {item.link}
+        </Text>
       </TouchableOpacity>
     </View>
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Upload Notes</Text>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Header with Gradient, Back Button, Theme Toggle */}
+      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
+        <View style={styles.headerContent}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <View style={styles.headerTextContainer}>
+            <Text style={styles.headerTitle}>📄 Upload Notes</Text>
+            <Text style={styles.headerSubtitle}>Share study materials with students</Text>
+          </View>
+          <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
+            <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          placeholder="Note Name"
-          value={name}
-          onChangeText={setName}
-          style={styles.input}
-        />
+      <View style={styles.content}>
+        <View style={[styles.inputContainer, { backgroundColor: colors.card }]}>
+          <TextInput
+            placeholder="Note Name"
+            placeholderTextColor={colors.textLight}
+            value={name}
+            onChangeText={setName}
+            style={[styles.input, { borderColor: colors.border, color: colors.textDark, backgroundColor: colors.background }]}
+          />
 
-        <TextInput
-          placeholder="PDF Link (https://...)"
-          value={link}
-          onChangeText={setLink}
-          style={styles.input}
-          autoCapitalize="none"
-        />
+          <TextInput
+            placeholder="PDF Link (https://...)"
+            placeholderTextColor={colors.textLight}
+            value={link}
+            onChangeText={setLink}
+            style={[styles.input, { borderColor: colors.border, color: colors.textDark, backgroundColor: colors.background }]}
+            autoCapitalize="none"
+          />
 
-        <TouchableOpacity
-          style={[styles.uploadButton, uploading && { opacity: 0.6 }]}
-          onPress={handleUpload}
-          disabled={uploading}
-        >
-          <Text style={styles.uploadButtonText}>
-            {uploading ? "Uploading..." : "Upload Note"}
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.uploadButton, { backgroundColor: colors.primary }, uploading && { opacity: 0.6 }]}
+            onPress={handleUpload}
+            disabled={uploading}
+          >
+            <Text style={styles.uploadButtonText}>
+              {uploading ? "Uploading..." : "Upload Note"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {loadingNotes ? (
+          <ActivityIndicator size="large" color={colors.primary} style={styles.loader} />
+        ) : (
+          <FlatList
+            data={notes}
+            renderItem={renderNoteItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContainer}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              <Text style={[styles.emptyText, { color: colors.textLight }]}>No notes uploaded yet.</Text>
+            }
+          />
+        )}
       </View>
-
-      {loadingNotes ? (
-        <ActivityIndicator size="large" color={Colors.primary} />
-      ) : (
-        <FlatList
-          data={notes}
-          renderItem={renderNoteItem}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContainer}
-          showsVerticalScrollIndicator={false}
-          ListEmptyComponent={
-            <Text style={styles.emptyText}>No notes uploaded yet.</Text>
-          }
-        />
-      )}
-
-      <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
-        <Text style={styles.backButtonText}>Back</Text>
-      </TouchableOpacity>
     </SafeAreaView>
   );
 }
@@ -193,116 +202,105 @@ export default function TeacherUploadNotesPage() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
+  },
+  header: {
+    padding: 20,
+    paddingTop: 40,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+  },
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 15,
+  },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "#fff",
+    opacity: 0.9,
+    marginTop: 2,
+  },
+  content: {
+    flex: 1,
     padding: 20,
   },
-
-  title: {
-    fontSize: 26,
-    fontWeight: "800",
-    color: Colors.textDark,
-    textAlign: "center",
-    marginBottom: 22,
-    letterSpacing: 0.4,
-  },
-
-  /* INPUT WRAPPER CARD */
   inputContainer: {
-    backgroundColor: Colors.card,
     padding: 18,
     borderRadius: 14,
     marginBottom: 22,
     elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
+    boxShadow: "0px 3px 6px rgba(0,0,0,0.1)",
   },
-
-  /* TEXT INPUT FIELDS */
   input: {
     borderWidth: 1.4,
-    borderColor: Colors.border,
     borderRadius: 12,
     padding: 14,
     fontSize: 16,
-    color: Colors.textDark,
     marginBottom: 12,
-    backgroundColor: "#ffffffff",
   },
-
-  /* UPLOAD BUTTON */
   uploadButton: {
-    backgroundColor: Colors.primary,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",
     marginTop: 8,
     elevation: 3,
   },
-
   uploadButtonText: {
-    color: Colors.card,
+    color: "#fff",
     fontSize: 16,
     fontWeight: "700",
     letterSpacing: 0.5,
   },
-
-  /* NOTES LIST */
   listContainer: {
     paddingBottom: 20,
   },
-
   noteItem: {
-    backgroundColor: Colors.card,
     padding: 16,
     borderRadius: 14,
     marginBottom: 12,
     elevation: 3,
-    shadowColor: "#000",
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    boxShadow: "0px 2px 6px rgba(0,0,0,0.08)",
   },
-
   noteText: {
     fontSize: 16,
-    color: Colors.textDark,
     marginBottom: 6,
     fontWeight: "600",
   },
-
   linkText: {
-    color: Colors.secondary,
     textDecorationLine: "underline",
     fontWeight: "600",
   },
-
   emptyText: {
     textAlign: "center",
-    color: Colors.textDark,
     fontSize: 16,
     marginTop: 10,
     letterSpacing: 0.3,
   },
-
-  /* BACK BUTTON */
-  backButton: {
-    backgroundColor: Colors.secondary,
-    paddingVertical: 14,
-    borderRadius: 28,
-    alignItems: "center",
-    marginTop: 26,
-    elevation: 4,
-    shadowColor: "#000",
-    shadowOpacity: 0.1,
-    shadowRadius: 7,
-  },
-
-  backButtonText: {
-    color: Colors.card,
-    fontSize: 17,
-    fontWeight: "700",
-    letterSpacing: 0.5,
+  loader: {
+    marginTop: 40,
   },
 });

@@ -1,33 +1,38 @@
-import React, { useState, useEffect } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Alert,
-  RefreshControl,
-  Modal,
-  TextInput,
-  Image,
+    collection,
+    deleteDoc,
+    doc,
+    getDoc,
+    getDocs,
+    query,
+    setDoc,
+    updateDoc,
+    where,
+} from "firebase/firestore";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+    Alert,
+    Animated,
+    Image,
+    Modal,
+    RefreshControl,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+    Dimensions,
+    ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  getDoc,
-  deleteDoc,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
-import { db, auth } from "../../../config/firebaseConfig";
+import { db, auth } from "../../../config/firebaseConfig.native";
+import { useTheme } from "../../../context/ThemeContext";
 import SubjectManagementModal from "../../Tabs/Teacherdashboard/SubjectManagementModal";
+
+const { width } = Dimensions.get("window");
 
 interface Teacher {
   id: string;
@@ -79,6 +84,7 @@ interface Note {
 
 export default function HODDashboard() {
   const router = useRouter();
+  const { colors, theme, toggleTheme } = useTheme();
   const [hodData, setHodData] = useState<any>(null);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
@@ -88,10 +94,12 @@ export default function HODDashboard() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   
-  // Subject Management Modal
-  const [subjectModalVisible, setSubjectModalVisible] = useState(false);
+  // Animations
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(40)).current;
+  const menuItemAnims = useRef<Animated.Value[]>([]).current;
 
-  // Other modal states
+  const [subjectModalVisible, setSubjectModalVisible] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
   const [selectedSemester, setSelectedSemester] = useState("");
@@ -107,13 +115,40 @@ export default function HODDashboard() {
   const semesters = ["1th", "2th", "3th", "4th", "5th", "6th"];
   const roles = ["teacher", "class_teacher", "exam_coordinator", "lab_incharge"];
 
+  // Pre-create animation values for menu items
   useEffect(() => {
-    fetchData();
-    fetchNotifications();
-    fetchNotes();
-  }, []);
+    for (let i = 0; i < 6; i++) {
+      if (!menuItemAnims[i]) {
+        menuItemAnims[i] = new Animated.Value(0);
+      }
+    }
+  }, [menuItemAnims]);
 
-  const fetchData = async () => {
+  const startContentAnimation = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    menuItemAnims.forEach((anim, idx) => {
+      Animated.timing(anim, {
+        toValue: 1,
+        duration: 400,
+        delay: idx * 100,
+        useNativeDriver: true,
+      }).start();
+    });
+  }, [fadeAnim, slideAnim, menuItemAnims]);
+
+  const fetchData = useCallback(async () => {
     try {
       const hodId = auth.currentUser?.uid;
       if (hodId) {
@@ -125,19 +160,14 @@ export default function HODDashboard() {
       }
 
       const teachersSnap = await getDocs(collection(db, "teachers"));
-      const teachersList = teachersSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Teacher));
+      const teachersList = teachersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Teacher));
       setTeachers(teachersList);
 
       const studentsSnap = await getDocs(collection(db, "students"));
-      const studentsList = studentsSnap.docs
-        .map(doc => ({ id: doc.id, ...doc.data() } as Student));
+      const studentsList = studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Student));
       setStudents(studentsList);
 
-      const requestsQuery = query(
-        collection(db, "teacherRequests"),
-        where("status", "==", "pending")
-      );
+      const requestsQuery = query(collection(db, "teacherRequests"), where("status", "==", "pending"));
       const requestsSnap = await getDocs(requestsQuery);
       setPendingRequests(requestsSnap.size);
 
@@ -147,16 +177,16 @@ export default function HODDashboard() {
         ...doc.data()
       } as ClassTeacherAssignment));
       setClassTeachers(assignments);
-
     } catch (error) {
       console.error("Error fetching data:", error);
       Alert.alert("Error", "Failed to load dashboard data");
     } finally {
       setRefreshing(false);
+      startContentAnimation();
     }
-  };
+  }, [startContentAnimation]);
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
     try {
       const notificationsSnap = await getDocs(
         query(collection(db, "notifications"), where("forRole", "in", ["hod", "all"]))
@@ -165,15 +195,15 @@ export default function HODDashboard() {
         id: doc.id,
         ...doc.data()
       } as Notification));
-      setNotifications(notificationsList.sort((a, b) => 
+      setNotifications(notificationsList.sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ));
     } catch (error) {
       console.error("Error fetching notifications:", error);
     }
-  };
+  }, []);
 
-  const fetchNotes = async () => {
+  const fetchNotes = useCallback(async () => {
     try {
       const notesSnap = await getDocs(
         query(collection(db, "notes"), where("forRole", "in", ["hod", "all"]))
@@ -182,16 +212,25 @@ export default function HODDashboard() {
         id: doc.id,
         ...doc.data()
       } as Note));
-      setNotes(notesList.sort((a, b) => 
+      setNotes(notesList.sort((a, b) =>
         new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       ));
     } catch (error) {
       console.error("Error fetching notes:", error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    fetchNotifications();
+    fetchNotes();
+  }, [fetchData, fetchNotifications, fetchNotes]);
 
   const onRefresh = () => {
     setRefreshing(true);
+    fadeAnim.setValue(0);
+    slideAnim.setValue(40);
+    menuItemAnims.forEach(anim => anim.setValue(0));
     fetchData();
     fetchNotifications();
     fetchNotes();
@@ -202,15 +241,13 @@ export default function HODDashboard() {
 
     try {
       await deleteDoc(doc(db, "teachers", teacherToDelete.id));
-      
       for (const assignment of classTeachers) {
         if (assignment.teacherId === teacherToDelete.id) {
           await deleteDoc(doc(db, "classTeachers", assignment.semester));
         }
       }
-
       Alert.alert("Success", `Teacher ${teacherToDelete.name} has been deleted`);
-      fetchData();
+      onRefresh();
       setShowDeleteConfirm(false);
       setTeacherToDelete(null);
     } catch (error) {
@@ -227,16 +264,12 @@ export default function HODDashboard() {
 
     try {
       const teacherRef = doc(db, "teachers", selectedRoleTeacher.id);
-      await updateDoc(teacherRef, {
-        role: newRole,
-        updatedAt: new Date().toISOString(),
-      });
-
+      await updateDoc(teacherRef, { role: newRole, updatedAt: new Date().toISOString() });
       Alert.alert("Success", `${selectedRoleTeacher.name} has been assigned as ${newRole}`);
       setShowRoleModal(false);
       setSelectedRoleTeacher(null);
       setNewRole("");
-      fetchData();
+      onRefresh();
     } catch (error) {
       console.error("Role assignment error:", error);
       Alert.alert("Error", "Failed to assign role");
@@ -258,12 +291,11 @@ export default function HODDashboard() {
         assignedBy: "hod",
         assignedAt: new Date().toISOString(),
       });
-
       Alert.alert("Success", `${selectedTeacher.name} assigned as Class Teacher for Semester ${selectedSemester}`);
       setModalVisible(false);
       setSelectedTeacher(null);
       setSelectedSemester("");
-      fetchData();
+      onRefresh();
     } catch (error) {
       console.error("Assignment error:", error);
       Alert.alert("Error", "Failed to assign class teacher");
@@ -285,12 +317,11 @@ export default function HODDashboard() {
         createdBy: hodData?.name || "HOD",
         forRole: "all",
       });
-
       Alert.alert("Success", "Note added successfully");
       setShowAddNoteModal(false);
       setNoteTitle("");
       setNoteContent("");
-      fetchNotes();
+      onRefresh();
     } catch (error) {
       console.error("Error adding note:", error);
       Alert.alert("Error", "Failed to add note");
@@ -314,10 +345,7 @@ export default function HODDashboard() {
   const navigateToNotifications = () => {
     router.push({
       pathname: "/Tabs/Teacherdashboard/HODNotifications",
-      params: { 
-        notifications: JSON.stringify(notifications),
-        pendingRequests: pendingRequests.toString()
-      }
+      params: { notifications: JSON.stringify(notifications), pendingRequests: pendingRequests.toString() }
     });
   };
 
@@ -350,6 +378,7 @@ export default function HODDashboard() {
       color: "#4CAF50",
       bgColor: "#E8F5E9",
       description: `${teachers.length} total teachers`,
+      count: 0,
       onPress: navigateToManageTeachers,
     },
     {
@@ -359,6 +388,7 @@ export default function HODDashboard() {
       color: "#9C27B0",
       bgColor: "#F3E5F5",
       description: "Add / Delete / Assign",
+      count: 0,
       onPress: () => setSubjectModalVisible(true),
     },
     {
@@ -368,6 +398,7 @@ export default function HODDashboard() {
       color: "#9C27B0",
       bgColor: "#F3E5F5",
       description: `${students.length} total students`,
+      count: 0,
       onPress: navigateToStudents,
     },
     {
@@ -377,6 +408,7 @@ export default function HODDashboard() {
       color: "#00BCD4",
       bgColor: "#E0F7FA",
       description: `${notes.length} notes`,
+      count: 0,
       onPress: navigateToNotes,
     },
     {
@@ -386,252 +418,188 @@ export default function HODDashboard() {
       color: "#FF5722",
       bgColor: "#FBE9E7",
       description: "View attendance",
+      count: 0,
       onPress: navigateToAttendance,
     },
   ];
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#7384bf"]} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
       >
-        {/* Profile Header */}
-        <LinearGradient
-          colors={["#7384bf", "#8b9ad5", "#a2afeb"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.profileHeader}
-        >
-          <View style={styles.profileCard}>
-            <View style={styles.profileImageWrapper}>
-              <View style={styles.profileImageGlow} />
-              <Image
-                source={require("../../../assets/images/hod.png")}
-                style={styles.profileImage}
-                defaultSource={require("../../../assets/images/hod.png")}
-              />
-              <View style={styles.statusBadge}>
-                <View style={styles.statusDot} />
+        <Animated.View style={{
+          opacity: fadeAnim,
+          transform: [{ translateY: slideAnim }],
+        }}>
+          {/* HOD Profile Header */}
+          <LinearGradient colors={[colors.primary, colors.secondary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.profileHeader}>
+            <View style={styles.profileCard}>
+              <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
+                <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
+              </TouchableOpacity>
+              <View style={styles.profileImageWrapper}>
+                <View style={styles.profileImageGlow} />
+                <Image source={require("../../../assets/images/hod.png")} style={styles.profileImage} defaultSource={require("../../../assets/images/hod.png")} />
+                <View style={styles.statusBadge}><View style={styles.statusDot} /></View>
               </View>
-            </View>
-
-            <Text style={styles.hodName}>{hodData?.name || "Loading..."}</Text>
-            <View style={styles.roleContainer}>
-              <Ionicons name="shield-checkmark-outline" size={16} color="#fff" />
-              <Text style={styles.roleTitle}>Head of Department</Text>
-            </View>
-
-            <View style={styles.contactInfo}>
-              <View style={styles.contactItem}>
-                <Ionicons name="mail-outline" size={14} color="rgba(255,255,255,0.9)" />
-                <Text style={styles.contactText}>{hodData?.email || "email@example.com"}</Text>
+              <Text style={styles.hodName}>{hodData?.name || "Head of Department"}</Text>
+              <View style={styles.roleContainer}>
+                <Ionicons name="shield-checkmark-outline" size={16} color="#fff" />
+                <Text style={styles.roleTitle}>Head of Department</Text>
               </View>
-              {hodData?.department && (
+              <View style={styles.contactInfo}>
                 <View style={styles.contactItem}>
-                  <Ionicons name="business-outline" size={14} color="rgba(255,255,255,0.9)" />
-                  <Text style={styles.contactText}>{hodData.department} Department</Text>
+                  <Ionicons name="mail-outline" size={14} color="rgba(255,255,255,0.9)" />
+                  <Text style={styles.contactText}>{hodData?.email || "hod@college.edu"}</Text>
                 </View>
-              )}
-              {hodData?.phone && (
-                <View style={styles.contactItem}>
-                  <Ionicons name="call-outline" size={14} color="rgba(255,255,255,0.9)" />
-                  <Text style={styles.contactText}>{hodData.phone}</Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.decorativeCircle1} />
-            <View style={styles.decorativeCircle2} />
-          </View>
-        </LinearGradient>
-
-        {/* Stats Cards */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: "#E8F0FE" }]}>
-              <Ionicons name="people-outline" size={24} color="#1976D2" />
-            </View>
-            <View>
-              <Text style={styles.statValue}>{teachers.length}</Text>
-              <Text style={styles.statLabel}>Teachers</Text>
-            </View>
-          </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: "#E8F5E9" }]}>
-              <Ionicons name="school-outline" size={24} color="#388E3C" />
-            </View>
-            <View>
-              <Text style={styles.statValue}>{students.length}</Text>
-              <Text style={styles.statLabel}>Students</Text>
-            </View>
-          </View>
-          <View style={styles.statCard}>
-            <View style={[styles.statIconBg, { backgroundColor: "#FFF3E0" }]}>
-              <Ionicons name="alert-circle-outline" size={24} color="#F57C00" />
-            </View>
-            <View>
-              <Text style={styles.statValue}>{pendingRequests}</Text>
-              <Text style={styles.statLabel}>Requests</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Quick Actions */}
-        <View style={styles.sectionContainer}>
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Quick Actions</Text>
-            <TouchableOpacity onPress={() => {}}>
-              <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.menuGrid}>
-            {menuItems.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={[styles.menuCard, { backgroundColor: item.bgColor }]}
-                onPress={item.onPress}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.menuIconContainer, { backgroundColor: `${item.color}15` }]}>
-                  <Ionicons name={item.icon as any} size={28} color={item.color} />
-                </View>
-                <Text style={styles.menuTitle}>{item.title}</Text>
-                <Text style={styles.menuDescription}>{item.description}</Text>
-                {item.count > 0 && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{item.count}</Text>
+                {hodData?.department && (
+                  <View style={styles.contactItem}>
+                    <Ionicons name="business-outline" size={14} color="rgba(255,255,255,0.9)" />
+                    <Text style={styles.contactText}>{hodData.department} Department</Text>
                   </View>
                 )}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+                {hodData?.phone && (
+                  <View style={styles.contactItem}>
+                    <Ionicons name="call-outline" size={14} color="rgba(255,255,255,0.9)" />
+                    <Text style={styles.contactText}>{hodData.phone}</Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </LinearGradient>
 
-        {/* Recent Notifications */}
-        {notifications.length > 0 && (
+          {/* Stats Cards */}
+          <View style={styles.statsContainer}>
+            <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+              <View style={[styles.statIconBg, { backgroundColor: "#E8F0FE" }]}>
+                <Ionicons name="people-outline" size={24} color="#1976D2" />
+              </View>
+              <View>
+                <Text style={[styles.statValue, { color: colors.textDark }]}>{teachers.length}</Text>
+                <Text style={[styles.statLabel, { color: colors.textLight }]}>Teachers</Text>
+              </View>
+            </View>
+            <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+              <View style={[styles.statIconBg, { backgroundColor: "#E8F5E9" }]}>
+                <Ionicons name="school-outline" size={24} color="#388E3C" />
+              </View>
+              <View>
+                <Text style={[styles.statValue, { color: colors.textDark }]}>{students.length}</Text>
+                <Text style={[styles.statLabel, { color: colors.textLight }]}>Students</Text>
+              </View>
+            </View>
+            <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+              <View style={[styles.statIconBg, { backgroundColor: "#FFF3E0" }]}>
+                <Ionicons name="alert-circle-outline" size={24} color="#F57C00" />
+              </View>
+              <View>
+                <Text style={[styles.statValue, { color: colors.textDark }]}>{pendingRequests}</Text>
+                <Text style={[styles.statLabel, { color: colors.textLight }]}>Requests</Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Quick Actions Grid */}
           <View style={styles.sectionContainer}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recent Notifications</Text>
-              <TouchableOpacity onPress={navigateToNotifications}>
-                <Text style={styles.seeAllText}>View All</Text>
-              </TouchableOpacity>
+            <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Quick Actions</Text>
+            <View style={styles.menuGrid}>
+              {menuItems.map((item, idx) => (
+                <Animated.View
+                  key={item.id}
+                  style={{
+                    width: (width - 52) / 2,
+                    opacity: menuItemAnims[idx] || new Animated.Value(0),
+                    transform: [{ translateY: (menuItemAnims[idx] || new Animated.Value(0)).interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) }],
+                  }}
+                >
+                  <TouchableOpacity style={[styles.menuCard, { backgroundColor: colors.card }]} onPress={item.onPress} activeOpacity={0.8}>
+                    <View style={[styles.menuIconContainer, { backgroundColor: `${item.color}15` }]}>
+                      <Ionicons name={item.icon as any} size={28} color={item.color} />
+                    </View>
+                    <Text style={[styles.menuTitle, { color: colors.textDark }]}>{item.title}</Text>
+                    <Text style={[styles.menuDescription, { color: colors.textLight }]}>{item.description}</Text>
+                    {(item.count ?? 0) > 0 && (
+                      <View style={styles.badge}><Text style={styles.badgeText}>{item.count ?? 0}</Text></View>
+                    )}
+                  </TouchableOpacity>
+                </Animated.View>
+              ))}
             </View>
-            {notifications.slice(0, 3).map((notification) => (
-              <View key={notification.id} style={styles.notificationCard}>
-                <View style={styles.notificationIcon}>
-                  <Ionicons name="notifications-outline" size={20} color="#7384bf" />
-                </View>
-                <View style={styles.notificationContent}>
-                  <Text style={styles.notificationTitle}>{notification.title}</Text>
-                  <Text style={styles.notificationMessage} numberOfLines={2}>
-                    {notification.message}
-                  </Text>
-                  <Text style={styles.notificationTime}>
-                    {new Date(notification.createdAt).toLocaleDateString()}
-                  </Text>
-                </View>
-              </View>
-            ))}
           </View>
-        )}
 
-        {/* Recent Notes */}
-        {notes.length > 0 && (
-          <View style={[styles.sectionContainer, styles.lastSection]}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recent Notes</Text>
-              <TouchableOpacity onPress={navigateToNotes}>
-                <Text style={styles.seeAllText}>View All</Text>
-              </TouchableOpacity>
+          {/* Recent Notifications */}
+          {notifications.length > 0 && (
+            <View style={styles.sectionContainer}>
+              <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Recent Notifications</Text>
+              {notifications.slice(0, 3).map((notification) => (
+                <TouchableOpacity key={notification.id} onPress={navigateToNotifications}>
+                  <View style={[styles.notificationCard, { backgroundColor: colors.card }]}>
+                    <View style={styles.notificationIcon}>
+                      <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+                    </View>
+                    <View style={styles.notificationContent}>
+                      <Text style={[styles.notificationTitle, { color: colors.textDark }]}>{notification.title}</Text>
+                      <Text style={[styles.notificationMessage, { color: colors.textLight }]} numberOfLines={2}>{notification.message}</Text>
+                      <Text style={[styles.notificationTime, { color: colors.textLight }]}>{new Date(notification.createdAt).toLocaleDateString()}</Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
             </View>
-            {notes.slice(0, 2).map((note) => (
-              <View key={note.id} style={styles.noteCard}>
-                <View style={styles.noteIcon}>
-                  <Ionicons name="document-text-outline" size={20} color="#00BCD4" />
-                </View>
-                <View style={styles.noteContent}>
-                  <Text style={styles.noteTitle}>{note.title}</Text>
-                  <Text style={styles.notePreview} numberOfLines={1}>
-                    {note.content}
-                  </Text>
-                  <Text style={styles.noteMeta}>
-                    By {note.createdBy} • {new Date(note.createdAt).toLocaleDateString()}
-                  </Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
+          )}
+
+          {/* Recent Notes */}
+          {notes.length > 0 && (
+            <View style={[styles.sectionContainer, styles.lastSection]}>
+              <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Recent Notes</Text>
+              {notes.slice(0, 2).map((note) => (
+                <TouchableOpacity key={note.id} onPress={navigateToNotes}>
+                  <View style={[styles.noteCard, { backgroundColor: colors.card }]}>
+                    <View style={styles.noteIcon}><Ionicons name="document-text-outline" size={20} color="#00BCD4" /></View>
+                    <View style={styles.noteContent}>
+                      <Text style={[styles.noteTitle, { color: colors.textDark }]}>{note.title}</Text>
+                      <Text style={[styles.notePreview, { color: colors.textLight }]} numberOfLines={1}>{note.content}</Text>
+                      <Text style={[styles.noteMeta, { color: colors.textLight }]}>By {note.createdBy} • {new Date(note.createdAt).toLocaleDateString()}</Text>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+        </Animated.View>
       </ScrollView>
 
-      {/* Floating Action Button */}
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setShowAddNoteModal(true)}
-        activeOpacity={0.8}
-      >
-        <LinearGradient colors={["#7384bf", "#5a6ea8"]} style={styles.fabGradient}>
+      {/* Add Note FAB */}
+      <TouchableOpacity style={styles.fab} onPress={() => setShowAddNoteModal(true)} activeOpacity={0.8}>
+        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.fabGradient}>
           <Ionicons name="add-outline" size={28} color="#fff" />
         </LinearGradient>
       </TouchableOpacity>
 
-      {/* Subject Management Modal */}
-      <SubjectManagementModal
-        visible={subjectModalVisible}
-        onClose={() => setSubjectModalVisible(false)}
-        department={hodData?.department || ""}
-        onSubjectsUpdated={() => {
-          // Optional: refresh any subject-dependent data
-        }}
-      />
+      {/* Modals */}
+      <SubjectManagementModal visible={subjectModalVisible} onClose={() => setSubjectModalVisible(false)} department={hodData?.department || ""} onSubjectsUpdated={() => {}} />
 
-      {/* Other Modals (unchanged) */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
+      {/* Assign Class Teacher Modal */}
+      <Modal animationType="slide" transparent visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Assign Class Teacher</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Assign Class Teacher</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)}><Ionicons name="close" size={24} color={colors.textDark} /></TouchableOpacity>
             </View>
-
             <View style={styles.modalBody}>
-              <Text style={styles.modalLabel}>Teacher: {selectedTeacher?.name}</Text>
-              <Text style={styles.modalLabel}>Select Semester:</Text>
+              <Text style={[styles.modalLabel, { color: colors.textDark }]}>Teacher: {selectedTeacher?.name}</Text>
+              <Text style={[styles.modalLabel, { color: colors.textDark }]}>Select Semester:</Text>
               <View style={styles.semesterGrid}>
                 {semesters.map((sem) => (
-                  <TouchableOpacity
-                    key={sem}
-                    style={[
-                      styles.semesterOption,
-                      selectedSemester === sem && styles.selectedSemester,
-                    ]}
-                    onPress={() => setSelectedSemester(sem)}
-                  >
-                    <Text style={[
-                      styles.semesterText,
-                      selectedSemester === sem && styles.selectedSemesterText,
-                    ]}>
-                      Sem {sem}
-                    </Text>
+                  <TouchableOpacity key={sem} style={[styles.semesterOption, { backgroundColor: colors.background }, selectedSemester === sem && styles.selectedSemester]} onPress={() => setSelectedSemester(sem)}>
+                    <Text style={[styles.semesterText, { color: colors.textLight }, selectedSemester === sem && styles.selectedSemesterText]}>Sem {sem}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
-
-              <TouchableOpacity
-                style={styles.assignSubmitButton}
-                onPress={assignClassTeacher}
-              >
+              <TouchableOpacity style={[styles.assignSubmitButton, { backgroundColor: colors.primary }]} onPress={assignClassTeacher}>
                 <Text style={styles.assignSubmitText}>Assign</Text>
               </TouchableOpacity>
             </View>
@@ -639,47 +607,25 @@ export default function HODDashboard() {
         </View>
       </Modal>
 
-      <Modal
-        transparent={true}
-        visible={showRoleModal}
-        onRequestClose={() => setShowRoleModal(false)}
-      >
+      {/* Assign Role Modal */}
+      <Modal transparent visible={showRoleModal} onRequestClose={() => setShowRoleModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Assign Role</Text>
-              <TouchableOpacity onPress={() => setShowRoleModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Assign Role</Text>
+              <TouchableOpacity onPress={() => setShowRoleModal(false)}><Ionicons name="close" size={24} color={colors.textDark} /></TouchableOpacity>
             </View>
-
             <View style={styles.modalBody}>
-              <Text style={styles.modalLabel}>Teacher: {selectedRoleTeacher?.name}</Text>
-              <Text style={styles.modalLabel}>Select Role:</Text>
+              <Text style={[styles.modalLabel, { color: colors.textDark }]}>Teacher: {selectedRoleTeacher?.name}</Text>
+              <Text style={[styles.modalLabel, { color: colors.textDark }]}>Select Role:</Text>
               <View style={styles.roleGrid}>
                 {roles.map((role) => (
-                  <TouchableOpacity
-                    key={role}
-                    style={[
-                      styles.roleOption,
-                      newRole === role && styles.selectedRole,
-                    ]}
-                    onPress={() => setNewRole(role)}
-                  >
-                    <Text style={[
-                      styles.roleText,
-                      newRole === role && styles.selectedRoleText,
-                    ]}>
-                      {role.replace("_", " ").toUpperCase()}
-                    </Text>
+                  <TouchableOpacity key={role} style={[styles.roleOption, { backgroundColor: colors.background }, newRole === role && styles.selectedRole]} onPress={() => setNewRole(role)}>
+                    <Text style={[styles.roleText, { color: colors.textLight }, newRole === role && styles.selectedRoleText]}>{role.replace("_", " ").toUpperCase()}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
-
-              <TouchableOpacity
-                style={styles.assignSubmitButton}
-                onPress={handleAssignRole}
-              >
+              <TouchableOpacity style={[styles.assignSubmitButton, { backgroundColor: colors.primary }]} onPress={handleAssignRole}>
                 <Text style={styles.assignSubmitText}>Assign Role</Text>
               </TouchableOpacity>
             </View>
@@ -687,70 +633,37 @@ export default function HODDashboard() {
         </View>
       </Modal>
 
-      <Modal
-        transparent={true}
-        visible={showAddNoteModal}
-        onRequestClose={() => setShowAddNoteModal(false)}
-      >
+      {/* Add Note Modal */}
+      <Modal transparent visible={showAddNoteModal} onRequestClose={() => setShowAddNoteModal(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Add Note</Text>
-              <TouchableOpacity onPress={() => setShowAddNoteModal(false)}>
-                <Ionicons name="close" size={24} color="#333" />
-              </TouchableOpacity>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Add Note</Text>
+              <TouchableOpacity onPress={() => setShowAddNoteModal(false)}><Ionicons name="close" size={24} color={colors.textDark} /></TouchableOpacity>
             </View>
-
             <View style={styles.modalBody}>
-              <TextInput
-                style={styles.input}
-                placeholder="Note Title"
-                value={noteTitle}
-                onChangeText={setNoteTitle}
-              />
-              <TextInput
-                style={[styles.input, styles.textArea]}
-                placeholder="Note Content"
-                value={noteContent}
-                onChangeText={setNoteContent}
-                multiline
-                numberOfLines={5}
-              />
-              <TouchableOpacity
-                style={styles.assignSubmitButton}
-                onPress={handleAddNote}
-              >
+              <TextInput style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="Note Title" placeholderTextColor={colors.textLight} value={noteTitle} onChangeText={setNoteTitle} />
+              <TextInput style={[styles.input, styles.textArea, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="Note Content" placeholderTextColor={colors.textLight} value={noteContent} onChangeText={setNoteContent} multiline numberOfLines={5} />
+              <TouchableOpacity style={[styles.assignSubmitButton, { backgroundColor: colors.primary }]} onPress={handleAddNote}>
                 <Text style={styles.assignSubmitText}>Add Note</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
-      </Modal>
+    </Modal>
 
-      <Modal
-        transparent={true}
-        visible={showDeleteConfirm}
-        onRequestClose={() => setShowDeleteConfirm(false)}
-      >
+      {/* Delete Confirmation Modal */}
+      <Modal transparent visible={showDeleteConfirm} onRequestClose={() => setShowDeleteConfirm(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.confirmModal}>
+          <View style={[styles.confirmModal, { backgroundColor: colors.card }]}>
             <Ionicons name="warning-outline" size={50} color="#F44336" />
-            <Text style={styles.confirmTitle}>Delete Teacher</Text>
-            <Text style={styles.confirmText}>
-              Are you sure you want to delete {teacherToDelete?.name}?
-              This action cannot be undone.
-            </Text>
+            <Text style={[styles.confirmTitle, { color: colors.textDark }]}>Delete Teacher</Text>
+            <Text style={[styles.confirmText, { color: colors.textLight }]}>Are you sure you want to delete {teacherToDelete?.name}? This action cannot be undone.</Text>
             <View style={styles.confirmButtons}>
-              <TouchableOpacity
-                style={[styles.confirmButton, styles.cancelButton]}
-                onPress={() => setShowDeleteConfirm(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+              <TouchableOpacity style={[styles.confirmButton, styles.cancelButton, { backgroundColor: colors.background }]} onPress={() => setShowDeleteConfirm(false)}>
+                <Text style={[styles.cancelButtonText, { color: colors.textDark }]}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.confirmButton, styles.deleteConfirmButton]}
-                onPress={handleDeleteTeacher}
-              >
+              <TouchableOpacity style={[styles.confirmButton, styles.deleteConfirmButton]} onPress={handleDeleteTeacher}>
                 <Text style={styles.deleteConfirmText}>Delete</Text>
               </TouchableOpacity>
             </View>
@@ -762,471 +675,82 @@ export default function HODDashboard() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F8F9FA",
-  },
+  container: { flex: 1 },
   profileHeader: {
-    paddingTop: 30,
+    paddingTop: 20,
     paddingBottom: 30,
     borderBottomLeftRadius: 40,
     borderBottomRightRadius: 40,
   },
-  profileCard: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-  },
-  profileImageWrapper: {
-    position: "relative",
-    marginBottom: 16,
-  },
-  profileImageGlow: {
-    position: "absolute",
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: "rgba(255,255,255,0.3)",
-    top: -5,
-    left: -5,
-  },
-  profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 4,
-    borderColor: "#fff",
-    backgroundColor: "#fff",
-  },
-  statusBadge: {
-    position: "absolute",
-    bottom: 5,
-    right: 5,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  statusDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
-    backgroundColor: "#4CAF50",
-    borderWidth: 2,
-    borderColor: "#fff",
-  },
-  hodName: {
-    fontSize: 26,
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 8,
-    textAlign: "center",
-    letterSpacing: 0.5,
-  },
-  roleContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(255,255,255,0.2)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    marginBottom: 16,
-    gap: 6,
-  },
-  roleTitle: {
-    fontSize: 13,
-    color: "#fff",
-    fontWeight: "500",
-  },
-  contactInfo: {
-    alignItems: "center",
-    gap: 6,
-    marginTop: 4,
-  },
-  contactItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  contactText: {
-    fontSize: 12,
-    color: "rgba(255,255,255,0.9)",
-  },
-  decorativeCircle1: {
-    position: "absolute",
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    top: -50,
-    right: -30,
-  },
-  decorativeCircle2: {
-    position: "absolute",
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    backgroundColor: "rgba(255,255,255,0.05)",
-    bottom: -30,
-    left: -20,
-  },
-  statsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    marginTop: -30,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    padding: 12,
-    borderRadius: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 3,
-    gap: 10,
-  },
-  statIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#1a1a2e",
-  },
-  statLabel: {
-    fontSize: 11,
-    color: "#666",
-    marginTop: 2,
-  },
-  sectionContainer: {
-    paddingHorizontal: 20,
-    marginTop: 24,
-  },
-  lastSection: {
-    marginBottom: 80,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#1a1a2e",
-  },
-  seeAllText: {
-    fontSize: 13,
-    color: "#7384bf",
-    fontWeight: "500",
-  },
-  menuGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    gap: 12,
-  },
-  menuCard: {
-    width: (380 - 52) / 2, // fallback width, but we removed Dimensions
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    padding: 16,
-    position: "relative",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  menuIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  menuTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#1a1a2e",
-    marginBottom: 4,
-  },
-  menuDescription: {
-    fontSize: 12,
-    color: "#666",
-  },
-  badge: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    backgroundColor: "#F44336",
-    borderRadius: 12,
-    minWidth: 20,
-    height: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 6,
-  },
-  badgeText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "bold",
-  },
-  notificationCard: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  notificationIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F0F2F5",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  notificationContent: {
-    flex: 1,
-  },
-  notificationTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1a1a2e",
-    marginBottom: 4,
-  },
-  notificationMessage: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 4,
-  },
-  notificationTime: {
-    fontSize: 10,
-    color: "#999",
-  },
-  noteCard: {
-    flexDirection: "row",
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 12,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  noteIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#E0F7FA",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  noteContent: {
-    flex: 1,
-  },
-  noteTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#1a1a2e",
-    marginBottom: 4,
-  },
-  notePreview: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 4,
-  },
-  noteMeta: {
-    fontSize: 10,
-    color: "#999",
-  },
-  fab: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  fabGradient: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    width: "90%",
-    maxHeight: "80%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#1a1a2e",
-  },
-  modalBody: {
-    padding: 20,
-  },
-  modalLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 12,
-  },
-  semesterGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 20,
-  },
-  semesterOption: {
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: "#F5F5F5",
-  },
-  selectedSemester: {
-    backgroundColor: "#7384bf",
-  },
-  semesterText: {
-    fontSize: 14,
-    color: "#666",
-  },
-  selectedSemesterText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  roleGrid: {
-    gap: 10,
-    marginBottom: 20,
-  },
-  roleOption: {
-    paddingHorizontal: 15,
-    paddingVertical: 12,
-    borderRadius: 10,
-    backgroundColor: "#F5F5F5",
-    alignItems: "center",
-  },
-  selectedRole: {
-    backgroundColor: "#7384bf",
-  },
-  roleText: {
-    fontSize: 14,
-    color: "#666",
-  },
-  selectedRoleText: {
-    color: "#fff",
-    fontWeight: "bold",
-  },
-  assignSubmitButton: {
-    backgroundColor: "#7384bf",
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  assignSubmitText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: "#E0E0E0",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 16,
-    fontSize: 14,
-    backgroundColor: "#F8F9FA",
-  },
-  textArea: {
-    height: 100,
-    textAlignVertical: "top",
-  },
-  confirmModal: {
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    padding: 24,
-    width: "80%",
-    alignItems: "center",
-  },
-  confirmTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#1a1a2e",
-    marginTop: 12,
-  },
-  confirmText: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    marginTop: 12,
-    marginBottom: 24,
-  },
-  confirmButtons: {
-    flexDirection: "row",
-    gap: 12,
-    width: "100%",
-  },
-  confirmButton: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: "center",
-  },
-  cancelButton: {
-    backgroundColor: "#F5F5F5",
-  },
-  cancelButtonText: {
-    color: "#666",
-    fontWeight: "600",
-  },
-  deleteConfirmButton: {
-    backgroundColor: "#F44336",
-  },
-  deleteConfirmText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
+  profileCard: { alignItems: "center", justifyContent: "center", paddingHorizontal: 20, position: "relative" },
+  themeToggle: { position: "absolute", top: 10, right: 20, zIndex: 10, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 20, padding: 8 },
+  profileImageWrapper: { position: "relative", marginBottom: 16 },
+  profileImageGlow: { position: "absolute", width: 110, height: 110, borderRadius: 55, backgroundColor: "rgba(255,255,255,0.3)", top: -5, left: -5 },
+  profileImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 4, borderColor: "#fff", backgroundColor: "#fff" },
+  statusBadge: { position: "absolute", bottom: 5, right: 5, width: 24, height: 24, borderRadius: 12, backgroundColor: "#fff", justifyContent: "center", alignItems: "center" },
+  statusDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: "#4CAF50", borderWidth: 2, borderColor: "#fff" },
+  hodName: { fontSize: 24, fontWeight: "bold", color: "#fff", marginBottom: 8, textAlign: "center" },
+  roleContainer: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 12, gap: 6 },
+  roleTitle: { fontSize: 13, color: "#fff", fontWeight: "500" },
+  contactInfo: { alignItems: "center", gap: 6, marginTop: 4 },
+  contactItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  contactText: { fontSize: 12, color: "rgba(255,255,255,0.9)" },
+  statsContainer: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 20, marginTop: -30, gap: 12, marginBottom: 8 },
+  statCard: { flex: 1, flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 20, elevation: 3, gap: 10 },
+  statIconBg: { width: 44, height: 44, borderRadius: 14, justifyContent: "center", alignItems: "center" },
+  statValue: { fontSize: 20, fontWeight: "bold" },
+  statLabel: { fontSize: 11, marginTop: 2 },
+  sectionContainer: { paddingHorizontal: 20, marginTop: 20 },
+  lastSection: { marginBottom: 80 },
+  sectionTitle: { fontSize: 18, fontWeight: "600", marginBottom: 16 },
+  menuGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 },
+  menuCard: { borderRadius: 20, padding: 16, position: "relative", elevation: 2, marginBottom: 4 },
+  menuIconContainer: { width: 48, height: 48, borderRadius: 16, justifyContent: "center", alignItems: "center", marginBottom: 12 },
+  menuTitle: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
+  menuDescription: { fontSize: 12 },
+  badge: { position: "absolute", top: 12, right: 12, backgroundColor: "#F44336", borderRadius: 12, minWidth: 20, height: 20, justifyContent: "center", alignItems: "center", paddingHorizontal: 6 },
+  badgeText: { color: "#fff", fontSize: 10, fontWeight: "bold" },
+  notificationCard: { flexDirection: "row", borderRadius: 16, padding: 12, marginBottom: 12, elevation: 1 },
+  notificationIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#F0F2F5", justifyContent: "center", alignItems: "center", marginRight: 12 },
+  notificationContent: { flex: 1 },
+  notificationTitle: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
+  notificationMessage: { fontSize: 12, marginBottom: 4 },
+  notificationTime: { fontSize: 10 },
+  noteCard: { flexDirection: "row", borderRadius: 16, padding: 12, marginBottom: 12, elevation: 1 },
+  noteIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#E0F7FA", justifyContent: "center", alignItems: "center", marginRight: 12 },
+  noteContent: { flex: 1 },
+  noteTitle: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
+  notePreview: { fontSize: 12, marginBottom: 4 },
+  noteMeta: { fontSize: 10 },
+  fab: { position: "absolute", bottom: 20, right: 20, elevation: 6 },
+  fabGradient: { width: 56, height: 56, borderRadius: 28, justifyContent: "center", alignItems: "center" },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
+  modalContent: { borderRadius: 24, width: "90%", maxHeight: "80%" },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1 },
+  modalTitle: { fontSize: 18, fontWeight: "bold" },
+  modalBody: { padding: 20 },
+  modalLabel: { fontSize: 14, fontWeight: "600", marginBottom: 12 },
+  semesterGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
+  semesterOption: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
+  selectedSemester: { backgroundColor: "#7384bf" },
+  semesterText: { fontSize: 14 },
+  selectedSemesterText: { color: "#fff", fontWeight: "bold" },
+  roleGrid: { gap: 10, marginBottom: 20 },
+  roleOption: { paddingHorizontal: 15, paddingVertical: 12, borderRadius: 10, alignItems: "center" },
+  selectedRole: { backgroundColor: "#7384bf" },
+  roleText: { fontSize: 14 },
+  selectedRoleText: { color: "#fff", fontWeight: "bold" },
+  assignSubmitButton: { paddingVertical: 14, borderRadius: 12, alignItems: "center" },
+  assignSubmitText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  input: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 16, fontSize: 14 },
+  textArea: { height: 100, textAlignVertical: "top" },
+  confirmModal: { borderRadius: 24, padding: 24, width: "80%", alignItems: "center" },
+  confirmTitle: { fontSize: 20, fontWeight: "bold", marginTop: 12 },
+  confirmText: { fontSize: 14, textAlign: "center", marginTop: 12, marginBottom: 24 },
+  confirmButtons: { flexDirection: "row", gap: 12, width: "100%" },
+  confirmButton: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
+  cancelButton: {},
+  cancelButtonText: { fontWeight: "600" },
+  deleteConfirmButton: { backgroundColor: "#F44336" },
+  deleteConfirmText: { color: "#fff", fontWeight: "600" },
 });

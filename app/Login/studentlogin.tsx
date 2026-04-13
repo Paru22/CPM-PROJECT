@@ -1,23 +1,23 @@
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import { doc, getDoc } from "firebase/firestore";
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  Image,
-  TouchableWithoutFeedback,
-  Keyboard,
-  ScrollView,
+    Alert,
+    Image,
+    Keyboard,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View,
 } from "react-native";
-import { useRouter } from "expo-router";
-import Colors from "../../assets/images/colors";  // ✅ FIXED
 import { SafeAreaView } from "react-native-safe-area-context";
 import studentavatar from "../../assets/images/studentavatar.jpg";
-import { Ionicons } from "@expo/vector-icons";
-import { doc, getDoc } from "firebase/firestore";
-import { db } from "../../config/firebaseConfig";
+import { db } from "../../config/firebaseConfig.native";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function StudentLoginScreen() {
   const [studentId, setStudentId] = useState("");
@@ -26,6 +26,7 @@ export default function StudentLoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
 
   const router = useRouter();
+  const { colors } = useTheme();
 
   const handleLogin = async () => {
     if (!studentId || !password) {
@@ -58,8 +59,8 @@ export default function StudentLoginScreen() {
       router.push(
         `/Tabs/Studentdashboard/studentdashboard?studentId=${studentId.trim()}`
       );
-    } catch (error) {
-      console.log("Login Error:", error);
+    } catch (_error) {
+      console.log("Login Error:", _error);
       Alert.alert("Error", "Something went wrong!");
     }
 
@@ -68,32 +69,56 @@ export default function StudentLoginScreen() {
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <ScrollView showsVerticalScrollIndicator={false}>
-          <View style={styles.topSection}>
+          <View style={[styles.topSection, { backgroundColor: colors.primary }]}>
             <Image source={studentavatar} style={styles.avatar} />
           </View>
 
-          <View style={styles.formCard}>
-            <Text style={styles.headerText}>
+          <View
+            style={[
+              styles.formCard,
+              {
+                backgroundColor: colors.card,
+                boxShadow: "0px 4px 12px rgba(0,0,0,0.25)",
+              },
+            ]}
+          >
+            <Text style={[styles.headerText, { color: colors.textDark }]}>
               Login with Student ID & Password
             </Text>
 
             <TextInput
               placeholder="Enter Student ID (e.g., STU001)"
+              placeholderTextColor={colors.textLight}
               value={studentId}
               onChangeText={setStudentId}
-              placeholderTextColor={Colors.textLight}
-              style={styles.input}
+              style={[
+                styles.input,
+                {
+                  borderColor: colors.border,
+                  color: colors.textDark,
+                },
+              ]}
             />
 
-            <View style={styles.passwordContainer}>
+            <View
+              style={[
+                styles.passwordContainer,
+                {
+                  borderColor: colors.border,
+                },
+              ]}
+            >
               <TextInput
                 placeholder="Password"
+                placeholderTextColor={colors.textLight}
                 value={password}
                 onChangeText={setPassword}
-                placeholderTextColor={Colors.textLight}
-                style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                style={[
+                  styles.input,
+                  { flex: 1, marginBottom: 0, borderWidth: 0 },
+                ]}
                 secureTextEntry={!showPassword}
               />
 
@@ -104,13 +129,17 @@ export default function StudentLoginScreen() {
                 <Ionicons
                   name={showPassword ? "eye-off" : "eye"}
                   size={24}
-                  color={Colors.textDark}
+                  color={colors.textDark}
                 />
               </TouchableOpacity>
             </View>
 
             <TouchableOpacity
-              style={[styles.loginBtn, loading && { opacity: 0.6 }]}
+              style={[
+                styles.loginBtn,
+                { backgroundColor: colors.primary },
+                loading && { opacity: 0.6 },
+              ]}
               onPress={handleLogin}
               disabled={loading}
             >
@@ -121,7 +150,10 @@ export default function StudentLoginScreen() {
 
             <TouchableOpacity
               onPress={() => router.replace("/")}
-              style={[styles.loginBtn, { backgroundColor: Colors.secondary }]}
+              style={[
+                styles.loginBtn,
+                { backgroundColor: colors.secondary },
+              ]}
             >
               <Text style={styles.loginText}>Back</Text>
             </TouchableOpacity>
@@ -133,69 +165,58 @@ export default function StudentLoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.background },
-
+  container: {
+    flex: 1,
+  },
   topSection: {
-    backgroundColor: Colors.primary,
     justifyContent: "center",
     alignItems: "center",
     paddingVertical: 40,
     borderBottomLeftRadius: 40,
     borderBottomRightRadius: 40,
   },
-
-  avatar: { width: 270, height: 270, borderRadius: 150 },
-
+  avatar: {
+    width: 270,
+    height: 270,
+    borderRadius: 150,
+  },
   formCard: {
-    backgroundColor: "#fff",
     marginHorizontal: 20,
     marginTop: -40,
     borderRadius: 40,
     padding: 25,
-    shadowColor: "#000",
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 12,
+    elevation: 12, // Android shadow (kept)
   },
-
   headerText: {
     textAlign: "center",
     fontSize: 18,
     fontWeight: "600",
     marginBottom: 15,
-    color: Colors.textDark,
   },
-
   input: {
     borderWidth: 1,
-    borderColor: Colors.border,
     borderRadius: 10,
     padding: 12,
     fontSize: 16,
-    color: Colors.textDark,
     marginBottom: 15,
   },
-
   passwordContainer: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: Colors.border,
     borderRadius: 10,
     marginBottom: 15,
     paddingRight: 10,
   },
-
-  eyeIcon: { paddingLeft: 10 },
-
+  eyeIcon: {
+    paddingLeft: 10,
+  },
   loginBtn: {
-    backgroundColor: Colors.primary,
     paddingVertical: 12,
     borderRadius: 10,
     alignItems: "center",
     marginBottom: 12,
   },
-
   loginText: {
     color: "#fff",
     fontSize: 16,

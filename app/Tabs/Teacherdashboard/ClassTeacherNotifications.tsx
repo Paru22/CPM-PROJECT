@@ -1,18 +1,19 @@
-import React, { useEffect, useState } from "react";
-import {
-  View,
-  Text,
-  FlatList,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, getDocs, doc, updateDoc, setDoc } from "firebase/firestore";
-import { useRouter } from "expo-router";
-import { db } from "../../../config/firebaseConfig";
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { collection, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import {
+    Alert,
+    FlatList,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { db } from "../../../config/firebaseConfig.native";
+import { useTheme } from "../../../context/ThemeContext";
 
 interface StudentRequest {
   id: string;
@@ -32,6 +33,7 @@ interface StudentRequest {
 
 const ClassTeacherNotifications = () => {
   const router = useRouter();
+  const { colors, theme, toggleTheme } = useTheme();
   const [requests, setRequests] = useState<StudentRequest[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -43,14 +45,12 @@ const ClassTeacherNotifications = () => {
     setLoading(true);
     try {
       const snapshot = await getDocs(collection(db, "studentRequests"));
-
       const pending = snapshot.docs
         .map((docSnap) => ({
           id: docSnap.id,
           ...(docSnap.data() as any),
         }))
         .filter((item) => item.status === "pending");
-
       setRequests(pending);
     } catch (error) {
       console.error("Error fetching requests:", error);
@@ -62,7 +62,6 @@ const ClassTeacherNotifications = () => {
 
   const approveStudent = async (student: StudentRequest) => {
     try {
-      // Move to students collection
       await setDoc(doc(db, "students", student.id), {
         name: student.name,
         email: student.email,
@@ -80,7 +79,6 @@ const ClassTeacherNotifications = () => {
         createdAt: new Date().toISOString(),
       });
 
-      // Update request status
       await updateDoc(doc(db, "studentRequests", student.id), {
         status: "approved",
         approvedAt: new Date().toISOString(),
@@ -109,7 +107,6 @@ const ClassTeacherNotifications = () => {
                 status: "rejected",
                 rejectedAt: new Date().toISOString(),
               });
-
               Alert.alert("Success", "Student request rejected ❌");
               fetchRequests();
             } catch (error) {
@@ -128,45 +125,45 @@ const ClassTeacherNotifications = () => {
 
   const renderItem = ({ item }: { item: StudentRequest }) => (
     <LinearGradient
-      colors={['#fff', '#f8f9fa']}
+      colors={[colors.card, `${colors.background}`]}
       style={styles.card}
       start={{ x: 0, y: 0 }}
       end={{ x: 1, y: 1 }}
     >
       <View style={styles.cardHeader}>
         <View style={styles.iconContainer}>
-          <Ionicons name="person-circle-outline" size={40} color="#7384bf" />
+          <Ionicons name="person-circle-outline" size={40} color={colors.primary} />
         </View>
         <View style={styles.cardContent}>
-          <Text style={styles.name}>{item.name}</Text>
+          <Text style={[styles.name, { color: colors.textDark }]}>{item.name}</Text>
           <View style={styles.detailRow}>
-            <Ionicons name="mail-outline" size={14} color="#666" />
-            <Text style={styles.detailText}>{item.email}</Text>
+            <Ionicons name="mail-outline" size={14} color={colors.textLight} />
+            <Text style={[styles.detailText, { color: colors.textLight }]}>{item.email}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Ionicons name="qr-code-outline" size={14} color="#666" />
-            <Text style={styles.detailText}>Roll: {item.rollNo}</Text>
+            <Ionicons name="qr-code-outline" size={14} color={colors.textLight} />
+            <Text style={[styles.detailText, { color: colors.textLight }]}>Roll: {item.rollNo}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Ionicons name="grid-outline" size={14} color="#666" />
-            <Text style={styles.detailText}>Class Roll: {item.classRollNo}</Text>
+            <Ionicons name="grid-outline" size={14} color={colors.textLight} />
+            <Text style={[styles.detailText, { color: colors.textLight }]}>Class Roll: {item.classRollNo}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Ionicons name="business-outline" size={14} color="#666" />
-            <Text style={styles.detailText}>Dept: {item.department}</Text>
+            <Ionicons name="business-outline" size={14} color={colors.textLight} />
+            <Text style={[styles.detailText, { color: colors.textLight }]}>Dept: {item.department}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Ionicons name="book-outline" size={14} color="#666" />
-            <Text style={styles.detailText}>Semester: {item.semester}</Text>
+            <Ionicons name="book-outline" size={14} color={colors.textLight} />
+            <Text style={[styles.detailText, { color: colors.textLight }]}>Semester: {item.semester}</Text>
           </View>
           <View style={styles.detailRow}>
-            <Ionicons name="call-outline" size={14} color="#666" />
-            <Text style={styles.detailText}>Phone: {item.phone}</Text>
+            <Ionicons name="call-outline" size={14} color={colors.textLight} />
+            <Text style={[styles.detailText, { color: colors.textLight }]}>Phone: {item.phone}</Text>
           </View>
           {item.parentPhone && (
             <View style={styles.detailRow}>
-              <Ionicons name="people-outline" size={14} color="#666" />
-              <Text style={styles.detailText}>Parent: {item.parentPhone}</Text>
+              <Ionicons name="people-outline" size={14} color={colors.textLight} />
+              <Text style={[styles.detailText, { color: colors.textLight }]}>Parent: {item.parentPhone}</Text>
             </View>
           )}
         </View>
@@ -193,8 +190,8 @@ const ClassTeacherNotifications = () => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient colors={['#7384bf', '#0c69ff']} style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
         <View style={styles.headerContent}>
           <TouchableOpacity onPress={handleBack} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -205,14 +202,18 @@ const ClassTeacherNotifications = () => {
               Approve or reject new student registrations
             </Text>
           </View>
+          {/* Theme Toggle Button */}
+          <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
+            <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
+          </TouchableOpacity>
         </View>
       </LinearGradient>
 
       <View style={styles.content}>
         {/* Stats Card */}
-        <View style={styles.statsCard}>
-          <Text style={styles.statsValue}>{requests.length}</Text>
-          <Text style={styles.statsLabel}>Pending Student Requests</Text>
+        <View style={[styles.statsCard, { backgroundColor: colors.card }]}>
+          <Text style={[styles.statsValue, { color: colors.primary }]}>{requests.length}</Text>
+          <Text style={[styles.statsLabel, { color: colors.textLight }]}>Pending Student Requests</Text>
         </View>
 
         {/* Requests List */}
@@ -225,8 +226,8 @@ const ClassTeacherNotifications = () => {
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Ionicons name="checkmark-done-circle" size={64} color="#4CAF50" />
-              <Text style={styles.emptyText}>No pending requests</Text>
-              <Text style={styles.emptySubText}>
+              <Text style={[styles.emptyText, { color: "#4CAF50" }]}>No pending requests</Text>
+              <Text style={[styles.emptySubText, { color: colors.textLight }]}>
                 All student requests have been processed
               </Text>
             </View>
@@ -242,7 +243,6 @@ const ClassTeacherNotifications = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
   },
   header: {
     padding: 20,
@@ -263,6 +263,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 15,
   },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   headerTextContainer: {
     flex: 1,
   },
@@ -282,25 +290,19 @@ const styles = StyleSheet.create({
     padding: 15,
   },
   statsCard: {
-    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 20,
     alignItems: "center",
     marginBottom: 20,
     elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    boxShadow: "0px 2px 4px rgba(0,0,0,0.1)",
   },
   statsValue: {
     fontSize: 36,
     fontWeight: "bold",
-    color: "#7384bf",
   },
   statsLabel: {
     fontSize: 14,
-    color: "#666",
     marginTop: 5,
   },
   listContainer: {
@@ -311,10 +313,7 @@ const styles = StyleSheet.create({
     padding: 15,
     marginBottom: 12,
     elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    boxShadow: "0px 1px 2px rgba(0,0,0,0.05)",
   },
   cardHeader: {
     flexDirection: "row",
@@ -329,7 +328,6 @@ const styles = StyleSheet.create({
   name: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#333",
     marginBottom: 6,
   },
   detailRow: {
@@ -340,7 +338,6 @@ const styles = StyleSheet.create({
   },
   detailText: {
     fontSize: 13,
-    color: "#666",
     flex: 1,
   },
   buttonRow: {
@@ -381,12 +378,10 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#4CAF50",
     marginTop: 16,
   },
   emptySubText: {
     fontSize: 14,
-    color: "#999",
     marginTop: 8,
     textAlign: "center",
   },

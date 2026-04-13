@@ -1,28 +1,28 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-  ScrollView,
-  ActivityIndicator,
-  SafeAreaView,
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { db } from '../../../config/firebaseConfig'; // adjust path
 import {
-  collection,
-  addDoc,
-  deleteDoc,
-  doc,
-  getDocs,
-  query,
-  where,
+    addDoc,
+    collection,
+    deleteDoc,
+    doc,
+    getDocs,
+    query,
+    where,
 } from 'firebase/firestore';
+import React, { useCallback, useEffect, useState } from 'react';
+import {
+    ActivityIndicator,
+    Alert,
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from 'react-native';
+import { db } from '../../../config/firebaseConfig.native';
 
 interface Subject {
   id: string;
@@ -79,7 +79,8 @@ const SubjectManagementModal: React.FC<SubjectManagementModalProps> = ({
   const [selectedTeacherId, setSelectedTeacherId] = useState('');
   const [selectedAssignSubjectId, setSelectedAssignSubjectId] = useState('');
 
-  const loadData = async () => {
+  // ✅ Wrap loadData in useCallback to prevent recreation on every render
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       console.log('Loading data for department:', department);
@@ -140,13 +141,14 @@ const SubjectManagementModal: React.FC<SubjectManagementModalProps> = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [department]); // ✅ dependency: department
 
+  // ✅ useEffect now correctly depends on loadData (stable reference)
   useEffect(() => {
     if (visible) {
       loadData();
     }
-  }, [visible]);
+  }, [visible, loadData]);
 
   const handleAddSubject = async () => {
     if (!newSubjectName.trim() || !newSubjectSemester || !newSubjectCredits) {
@@ -241,6 +243,34 @@ const SubjectManagementModal: React.FC<SubjectManagementModalProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleDeleteAssignment = async (assignmentId: string, teacherName: string, subjectName: string) => {
+    Alert.alert(
+      'Remove Assignment',
+      `Remove "${subjectName}" from ${teacherName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            setLoading(true);
+            try {
+              await deleteDoc(doc(db, 'teacherSubjects', assignmentId));
+              Alert.alert('Success', 'Assignment removed');
+              await loadData();
+              onSubjectsUpdated();
+            } catch (error) {
+              console.error(error);
+              Alert.alert('Error', 'Failed to remove assignment');
+            } finally {
+              setLoading(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const isSubjectAssignedToTeacher = (subjectId: string) => {
@@ -392,6 +422,12 @@ const SubjectManagementModal: React.FC<SubjectManagementModalProps> = ({
                       <Text style={styles.assignmentTeacher}>{assign.teacherName}</Text>
                       <Text style={styles.assignmentSubject}>{assign.subjectName}</Text>
                     </View>
+                    <TouchableOpacity
+                      onPress={() => handleDeleteAssignment(assign.id, assign.teacherName || '', assign.subjectName || '')}
+                      style={styles.deleteAssignmentIcon}
+                    >
+                      <Ionicons name="trash-outline" size={22} color="#F44336" />
+                    </TouchableOpacity>
                   </View>
                 ))
               )}
@@ -432,6 +468,7 @@ const styles = StyleSheet.create({
   assignmentInfo: { flex: 1 },
   assignmentTeacher: { fontSize: 16, fontWeight: '600', color: '#333' },
   assignmentSubject: { fontSize: 14, color: '#666', marginTop: 2 },
+  deleteAssignmentIcon: { padding: 6 },
 });
 
 export default SubjectManagementModal;

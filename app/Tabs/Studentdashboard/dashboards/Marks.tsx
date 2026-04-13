@@ -1,22 +1,22 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../../../../config/firebaseConfig";
-import Colors from "../../../../assets/images/colors";
+import React, { useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { db } from "../../../../config/firebaseConfig.native";
+import { useTheme } from "../../../../context/ThemeContext";
 
 import Animated, {
-  FadeIn,
-  FadeInDown,
+    FadeIn,
+    FadeInDown,
 } from "react-native-reanimated";
 
 interface MarkItem {
@@ -26,7 +26,7 @@ interface MarkItem {
   grade: string;
 }
 
-// 🎯 Auto Grade Function
+// Auto Grade Function
 const getGrade = (marks: number) => {
   if (marks >= 90) return "A+";
   if (marks >= 80) return "A";
@@ -38,6 +38,7 @@ const getGrade = (marks: number) => {
 export default function MarksProfilePage() {
   const router = useRouter();
   const { studentId } = useLocalSearchParams();
+  const { colors } = useTheme();
 
   const [marksData, setMarksData] = useState<MarkItem[]>([]);
   const [selectedFilter, setSelectedFilter] = useState<
@@ -64,18 +65,17 @@ export default function MarksProfilePage() {
         const marksArray: MarkItem[] = Object.keys(marksMap).map(
           (key, index) => {
             const marks = marksMap[key].marks;
-
             return {
               id: `${studentId}-${index}`,
               subject: key,
               marks,
-              grade: getGrade(marks), // ✅ auto grade
+              grade: getGrade(marks),
             };
           }
         );
 
         setMarksData(marksArray);
-      } catch (err) {
+      } catch {
         Alert.alert("Error", "Failed to load marks.");
       } finally {
         setLoading(false);
@@ -94,8 +94,7 @@ export default function MarksProfilePage() {
       ? marksData
       : marksData.filter((item) => item.grade === selectedFilter);
 
-  // 🎨 Grade Colors
-  const getColor = (grade: string) => {
+  const getGradeColor = (grade: string) => {
     if (grade === "A+" || grade === "A") return "#4CAF50";
     if (grade.includes("B")) return "#FF9800";
     return "#F44336";
@@ -103,25 +102,24 @@ export default function MarksProfilePage() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.primary} />
+      <SafeAreaView style={[styles.center, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
-        
         {/* Title */}
-        <Animated.Text entering={FadeIn} style={styles.title}>
+        <Animated.Text entering={FadeIn} style={[styles.title, { color: colors.textDark }]}>
           📊 Marks Dashboard
         </Animated.Text>
 
-        {/* Summary */}
-        <View style={styles.summaryContainer}>
-          <Text style={styles.summaryText}>Total: {totalMarks}</Text>
-          <Text style={styles.summaryText}>Average: {avgMarks}</Text>
+        {/* Summary Cards */}
+        <View style={[styles.summaryContainer, { backgroundColor: colors.card }]}>
+          <Text style={[styles.summaryText, { color: colors.textDark }]}>Total: {totalMarks}</Text>
+          <Text style={[styles.summaryText, { color: colors.textDark }]}>Average: {avgMarks}</Text>
         </View>
 
         {/* Filters */}
@@ -130,16 +128,23 @@ export default function MarksProfilePage() {
             <TouchableOpacity
               key={grade}
               onPress={() =>
-                setSelectedFilter(
-                  grade as "All" | "A+" | "A" | "B+" | "B" | "C"
-                )
+                setSelectedFilter(grade as "All" | "A+" | "A" | "B+" | "B" | "C")
               }
               style={[
                 styles.filterButton,
-                selectedFilter === grade && styles.selectedFilter,
+                {
+                  backgroundColor: selectedFilter === grade ? colors.primary : colors.card,
+                },
               ]}
             >
-              <Text style={styles.filterText}>{grade}</Text>
+              <Text
+                style={[
+                  styles.filterText,
+                  { color: selectedFilter === grade ? "#fff" : colors.textDark },
+                ]}
+              >
+                {grade}
+              </Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -147,29 +152,26 @@ export default function MarksProfilePage() {
         {/* Marks List */}
         {filteredData.map((item, index) => {
           const percent = item.marks;
+          const gradeColor = getGradeColor(item.grade);
 
           return (
             <Animated.View
               key={item.id}
               entering={FadeInDown.delay(index * 100)}
-              style={styles.card}
+              style={[styles.card, { backgroundColor: colors.card }]}
             >
-              <Text style={styles.subject}>{item.subject}</Text>
-
-              <Text style={styles.marks}>Marks: {item.marks}</Text>
-
-              <Text style={[styles.grade, { color: getColor(item.grade) }]}>
-                Grade: {item.grade}
-              </Text>
+              <Text style={[styles.subject, { color: colors.textDark }]}>{item.subject}</Text>
+              <Text style={[styles.marks, { color: colors.textLight }]}>Marks: {item.marks}</Text>
+              <Text style={[styles.grade, { color: gradeColor }]}>Grade: {item.grade}</Text>
 
               {/* Progress Bar */}
-              <View style={styles.progressBar}>
+              <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
                 <View
                   style={[
                     styles.progressFill,
                     {
                       width: `${percent}%`,
-                      backgroundColor: getColor(item.grade),
+                      backgroundColor: gradeColor,
                     },
                   ]}
                 />
@@ -178,9 +180,9 @@ export default function MarksProfilePage() {
           );
         })}
 
-        {/* Back */}
+        {/* Back Button */}
         <TouchableOpacity
-          style={styles.backButton}
+          style={[styles.backButton, { backgroundColor: colors.primary }]}
           onPress={() => router.back()}
         >
           <Text style={styles.backText}>⬅ Back</Text>
@@ -190,105 +192,82 @@ export default function MarksProfilePage() {
   );
 }
 
-// 🎨 Styles
+// Styles – no deprecated shadow* or textShadow* props
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fb",
     padding: 16,
   },
-
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-
   title: {
     fontSize: 26,
     fontWeight: "bold",
     textAlign: "center",
     marginBottom: 20,
   },
-
   summaryContainer: {
-    backgroundColor: "#fff",
     padding: 15,
     borderRadius: 12,
     marginBottom: 15,
     alignItems: "center",
+    elevation: 2, // Android shadow, no deprecation
   },
-
   summaryText: {
     fontSize: 16,
     fontWeight: "600",
   },
-
   filterContainer: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
     marginBottom: 15,
   },
-
   filterButton: {
-    backgroundColor: "#fff",
     paddingHorizontal: 12,
     paddingVertical: 6,
     margin: 5,
     borderRadius: 20,
+    elevation: 1,
   },
-
-  selectedFilter: {
-    backgroundColor: "#6c63ff",
-  },
-
   filterText: {
-    color: "#333",
     fontWeight: "600",
   },
-
   card: {
-    backgroundColor: "#fff",
     padding: 15,
     borderRadius: 12,
     marginBottom: 12,
+    elevation: 1,
   },
-
   subject: {
     fontSize: 18,
     fontWeight: "bold",
   },
-
   marks: {
     marginTop: 5,
   },
-
   grade: {
     marginTop: 5,
     fontWeight: "bold",
   },
-
   progressBar: {
     height: 8,
-    backgroundColor: "#eee",
     borderRadius: 10,
     marginTop: 10,
     overflow: "hidden",
   },
-
   progressFill: {
     height: "100%",
   },
-
   backButton: {
-    backgroundColor: "#6c63ff",
     padding: 12,
     borderRadius: 25,
     alignItems: "center",
     marginTop: 20,
   },
-
   backText: {
     color: "#fff",
     fontWeight: "bold",

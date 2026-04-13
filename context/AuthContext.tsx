@@ -1,19 +1,12 @@
-import React, { createContext, useState, useContext, useEffect, ReactNode, useCallback } from "react";
-import { 
-  getAuth, 
-  onAuthStateChanged, 
-  signInWithEmailAndPassword, 
-  signOut, 
-  User as FirebaseUser 
+import {
+    User as FirebaseUser,
+    onAuthStateChanged,
+    signInWithEmailAndPassword,
+    signOut
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
-import { app, db } from "../config/firebaseConfig";
-
-// Initialize Auth (simple version – persistence warning is non‑blocking)
-const auth = getAuth(app);
-
-// ... the rest of your interfaces and AuthProvider remains exactly as before
-// (keep your AppUser interface, useAuth hook, etc.)
+import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
+import { auth, db } from "../config/firebaseConfig.native"; // ✅ import auth from config
 
 export interface AppUser {
   uid: string;
@@ -148,5 +141,3 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-
-export { auth };

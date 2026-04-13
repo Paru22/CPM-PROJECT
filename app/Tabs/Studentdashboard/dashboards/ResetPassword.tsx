@@ -1,26 +1,27 @@
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { doc, updateDoc } from "firebase/firestore";
-import { db } from "../../../../config/firebaseConfig";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import Colors from "../../../../assets/images/colors";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { doc, updateDoc } from "firebase/firestore";
+import React, { useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { db } from "../../../../config/firebaseConfig.native";
+import { useTheme } from "../../../../context/ThemeContext";
 
 export default function ResetPassword() {
   const router = useRouter();
   const params = useLocalSearchParams();
   const rollNo = params.rollNo as string;
   const storedCode = params.resetCode as string;
+  const { colors } = useTheme();
 
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -73,8 +74,8 @@ export default function ResetPassword() {
           },
         ]
       );
-    } catch (error) {
-      console.error("Reset password error:", error);
+    } catch (_error) {
+      console.error("Reset password error:", _error);
       Alert.alert("Error", "Failed to reset password. Please try again.");
     } finally {
       setLoading(false);
@@ -82,9 +83,9 @@ export default function ResetPassword() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <LinearGradient
-        colors={[Colors.primary, Colors.secondary]}
+        colors={[colors.primary, colors.secondary]}
         style={styles.header}
       >
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
@@ -95,55 +96,63 @@ export default function ResetPassword() {
       </LinearGradient>
 
       <View style={styles.content}>
-        <View style={styles.card}>
-          <Text style={styles.label}>Reset Code</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="key-outline" size={20} color={Colors.primary} style={styles.inputIcon} />
+        <View
+          style={[
+            styles.card,
+            {
+              backgroundColor: colors.card,
+              boxShadow: "0px 2px 4px rgba(0,0,0,0.1)",
+            },
+          ]}
+        >
+          <Text style={[styles.label, { color: colors.textDark }]}>Reset Code</Text>
+          <View style={[styles.inputContainer, { borderColor: colors.border, backgroundColor: colors.background }]}>
+            <Ionicons name="key-outline" size={20} color={colors.primary} style={styles.inputIcon} />
             <TextInput
-              style={styles.input}
+              style={[styles.input, { color: colors.textDark }]}
               placeholder="Enter 6-digit reset code"
+              placeholderTextColor={colors.textLight}
               value={resetCode}
               onChangeText={setResetCode}
               keyboardType="numeric"
               maxLength={6}
-              placeholderTextColor={Colors.textLight}
             />
           </View>
 
-          <Text style={styles.label}>New Password</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color={Colors.primary} style={styles.inputIcon} />
+          <Text style={[styles.label, { color: colors.textDark }]}>New Password</Text>
+          <View style={[styles.inputContainer, { borderColor: colors.border, backgroundColor: colors.background }]}>
+            <Ionicons name="lock-closed-outline" size={20} color={colors.primary} style={styles.inputIcon} />
             <TextInput
-              style={styles.input}
+              style={[styles.input, { color: colors.textDark }]}
               placeholder="Enter new password"
+              placeholderTextColor={colors.textLight}
               value={newPassword}
               onChangeText={setNewPassword}
               secureTextEntry={!showNewPassword}
-              placeholderTextColor={Colors.textLight}
             />
             <TouchableOpacity onPress={() => setShowNewPassword(!showNewPassword)}>
-              <Ionicons name={showNewPassword ? "eye-off" : "eye"} size={20} color={Colors.textLight} />
+              <Ionicons name={showNewPassword ? "eye-off" : "eye"} size={20} color={colors.textLight} />
             </TouchableOpacity>
           </View>
 
-          <Text style={styles.label}>Confirm Password</Text>
-          <View style={styles.inputContainer}>
-            <Ionicons name="lock-closed-outline" size={20} color={Colors.primary} style={styles.inputIcon} />
+          <Text style={[styles.label, { color: colors.textDark }]}>Confirm Password</Text>
+          <View style={[styles.inputContainer, { borderColor: colors.border, backgroundColor: colors.background }]}>
+            <Ionicons name="lock-closed-outline" size={20} color={colors.primary} style={styles.inputIcon} />
             <TextInput
-              style={styles.input}
+              style={[styles.input, { color: colors.textDark }]}
               placeholder="Confirm new password"
+              placeholderTextColor={colors.textLight}
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry={!showConfirmPassword}
-              placeholderTextColor={Colors.textLight}
             />
             <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
-              <Ionicons name={showConfirmPassword ? "eye-off" : "eye"} size={20} color={Colors.textLight} />
+              <Ionicons name={showConfirmPassword ? "eye-off" : "eye"} size={20} color={colors.textLight} />
             </TouchableOpacity>
           </View>
 
           <TouchableOpacity
-            style={[styles.resetButton, loading && styles.disabledBtn]}
+            style={[styles.resetButton, { backgroundColor: colors.primary }, loading && styles.disabledBtn]}
             onPress={handleResetPassword}
             disabled={loading}
           >
@@ -162,7 +171,6 @@ export default function ResetPassword() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.background,
   },
   header: {
     padding: 20,
@@ -195,19 +203,14 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   card: {
-    backgroundColor: "#fff",
     borderRadius: 20,
     padding: 20,
-    elevation: 5,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    elevation: 5, // Android shadow (kept, not deprecated)
+    // boxShadow applied inline
   },
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: Colors.textDark,
     marginBottom: 8,
     marginTop: 15,
   },
@@ -215,10 +218,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: Colors.border,
     borderRadius: 12,
     paddingHorizontal: 12,
-    backgroundColor: "#f9f9f9",
   },
   inputIcon: {
     marginRight: 10,
@@ -227,10 +228,8 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     fontSize: 16,
-    color: Colors.textDark,
   },
   resetButton: {
-    backgroundColor: Colors.primary,
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: "center",

@@ -1,28 +1,32 @@
-import React, { useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Image, ActivityIndicator } from "react-native";
-import { useRouter, useLocalSearchParams } from "expo-router";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { doc, getDoc } from "firebase/firestore";
-import { db } from "../../../config/firebaseConfig";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { db } from "../../../config/firebaseConfig.native";
+import { useTheme } from "../../../context/ThemeContext";
 
-const Colors = {
-  primary: "#7384bfff",
-  secondary: "#0c69ffff",
-  background: "#f0f4f8",
-  card: "#ffffff",
-  textDark: "#181b20ff",
-  textLight: "#6B7280",
-  border: "#c0e213ff",
-};
+// Array of motivational quotes about teaching and students
+const motivationalQuotes = [
+  "✨ Teaching is the one profession that creates all other professions. ✨",
+  "📚 Every student can learn, just not on the same day or in the same way. 📚",
+  "🌟 A teacher's purpose is not to create students in their own image, but to develop students who can create their own image. 🌟",
+  "💡 The art of teaching is the art of assisting discovery. 💡",
+  "🎓 To teach is to touch a life forever. 🎓",
+  "🌱 Plant seeds of knowledge, watch them grow into futures. 🌱",
+  "🏆 Your students may forget what you said, but they will never forget how you made them feel. 🏆",
+];
 
 export default function Teacherdashboard() {
   const router = useRouter();
-  const { teacherId } = useLocalSearchParams(); // EX: teacherId="TCH001"
+  const { teacherId } = useLocalSearchParams();
+  const { colors, theme, toggleTheme } = useTheme();
 
   const [teacherData, setTeacherData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [motivationalQuote, setMotivationalQuote] = useState("");
 
   // -------------------------
   // 🔥 Fetch Teacher Data
@@ -64,23 +68,27 @@ export default function Teacherdashboard() {
     };
 
     loadTeacher();
+
+    // Pick a random motivational quote
+    const randomIndex = Math.floor(Math.random() * motivationalQuotes.length);
+    setMotivationalQuote(motivationalQuotes[randomIndex]);
   }, [teacherId]);
 
   const handleLogout = () => router.replace("/Login/teacherlogin");
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-        <Text style={{ marginTop: 10 }}>Loading...</Text>
+      <SafeAreaView style={[styles.center, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={{ marginTop: 10, color: colors.textDark }}>Loading...</Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* HEADER */}
-      <LinearGradient colors={[Colors.primary, Colors.secondary]} style={styles.header}>
+      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
         <View style={styles.headerContent}>
           <Image
             source={{
@@ -88,31 +96,49 @@ export default function Teacherdashboard() {
             }}
             style={styles.photo}
           />
-          <View>
+          <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>Teacher Dashboard</Text>
             <Text style={styles.headerName}>{teacherData?.name}</Text>
             <Text style={styles.headerDept}>
               {teacherData?.department} Department
             </Text>
           </View>
+          {/* Theme Toggle Button */}
+          <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
+            <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
+          </TouchableOpacity>
         </View>
       </LinearGradient>
 
       {/* BODY */}
       <ScrollView contentContainerStyle={styles.body}>
+        {/* 🌟 WELCOME + MOTIVATIONAL QUOTE */}
+        <View style={[styles.welcomeCard, { backgroundColor: colors.card }]}>
+          <View style={styles.welcomeHeader}>
+            <Ionicons name="happy-outline" size={28} color={colors.primary} />
+            <Text style={[styles.welcomeText, { color: colors.textDark }]}>
+              Welcome, {teacherData?.name?.split(' ')[0] || 'Teacher'}!
+            </Text>
+          </View>
+          <View style={[styles.quoteContainer, { backgroundColor: colors.background }]}>
+            <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.secondary} />
+            <Text style={[styles.quoteText, { color: colors.textDark }]}>{motivationalQuote}</Text>
+          </View>
+        </View>
+
         {/* ⭐ SUBJECTS FETCHED FROM FIRESTORE */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Subjects Taught</Text>
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
+          <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Subjects Taught</Text>
 
           {teacherData?.subjects?.length > 0 ? (
             teacherData.subjects.map((sub: string, index: number) => (
-              <View key={index} style={styles.subjectItem}>
-                <Ionicons name="book-outline" size={20} color={Colors.secondary} />
-                <Text style={styles.subjectText}>{sub}</Text>
+              <View key={index} style={[styles.subjectItem, { backgroundColor: colors.background }]}>
+                <Ionicons name="book-outline" size={20} color={colors.secondary} />
+                <Text style={[styles.subjectText, { color: colors.textDark }]}>{sub}</Text>
               </View>
             ))
           ) : (
-            <Text style={{ color: Colors.textLight }}>No subjects found.</Text>
+            <Text style={{ color: colors.textLight }}>No subjects found.</Text>
           )}
         </View>
 
@@ -124,8 +150,8 @@ export default function Teacherdashboard() {
               router.push(`/Tabs/Teacherdashboard/Attendence?teacherId=${teacherId}`)
             }
           >
-            <Ionicons name="checkmark-done-outline" size={26} color={Colors.secondary} />
-            <Text style={styles.gridText}>Attendance</Text>
+            <Ionicons name="checkmark-done-outline" size={26} color={colors.secondary} />
+            <Text style={[styles.gridText, { color: colors.textDark }]}>Attendance</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -135,7 +161,7 @@ export default function Teacherdashboard() {
             }
           >
             <Ionicons name="people-outline" size={26} color="#F59E0B" />
-            <Text style={styles.gridText}>Students</Text>
+            <Text style={[styles.gridText, { color: colors.textDark }]}>Students</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -143,7 +169,7 @@ export default function Teacherdashboard() {
             onPress={() => router.push(`/Tabs/Teacherdashboard/notes?teacherId=${teacherId}`)}
           >
             <Ionicons name="document-text-outline" size={26} color="#10B981" />
-            <Text style={styles.gridText}>Add Notes</Text>
+            <Text style={[styles.gridText, { color: colors.textDark }]}>Add Notes</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -153,12 +179,12 @@ export default function Teacherdashboard() {
             }
           >
             <Ionicons name="bar-chart-outline" size={26} color="#EF4444" />
-            <Text style={styles.gridText}>Update Marks</Text>
+            <Text style={[styles.gridText, { color: colors.textDark }]}>Update Marks</Text>
           </TouchableOpacity>
         </View>
 
         {/* LOGOUT */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+        <TouchableOpacity style={[styles.logoutButton, { backgroundColor: colors.secondary }]} onPress={handleLogout}>
           <Ionicons name="log-out-outline" size={20} color="#fff" />
           <Text style={styles.logoutButtonText}>Logout</Text>
         </TouchableOpacity>
@@ -168,30 +194,29 @@ export default function Teacherdashboard() {
 }
 
 const styles = StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: Colors.background 
-  },
-  center: { 
-    flex: 1, 
-    alignItems: "center", 
-    justifyContent: "center" 
-  },
+  container: { flex: 1 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center" },
   header: {
     paddingVertical: 35,
     paddingHorizontal: 20,
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
+    boxShadow: "0px 4px 5px rgba(0,0,0,0.3)",
     elevation: 6,
   },
   headerContent: { flexDirection: "row", alignItems: "center", gap: 15 },
+  headerTextContainer: { flex: 1 },
   headerTitle: { color: "#fff", fontSize: 24, fontWeight: "bold" },
   headerName: { color: "#E0E0E0", fontSize: 18, marginTop: 2 },
   headerDept: { color: "#D3E0FF", fontSize: 14, marginTop: 2 },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   photo: {
     width: 80,
     height: 80,
@@ -201,42 +226,62 @@ const styles = StyleSheet.create({
     backgroundColor: "#e0e0e0",
   },
   body: { padding: 20, gap: 20 },
+  welcomeCard: {
+    borderRadius: 20,
+    padding: 16,
+    boxShadow: "0px 2px 8px rgba(0,0,0,0.05)",
+    elevation: 2,
+    gap: 12,
+  },
+  welcomeHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  welcomeText: {
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  quoteContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 12,
+    borderRadius: 16,
+  },
+  quoteText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontStyle: "italic",
+  },
   card: {
-    backgroundColor: Colors.card,
     borderRadius: 25,
     padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
+    boxShadow: "0px 4px 6px rgba(0,0,0,0.15)",
     elevation: 4,
   },
-  sectionTitle: { fontSize: 20, fontWeight: "700", color: Colors.textDark, marginBottom: 12 },
-  subjectItem: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    gap: 12, 
-    marginBottom: 10, 
-    backgroundColor: "#f7f9fc",
+  sectionTitle: { fontSize: 20, fontWeight: "700", marginBottom: 12 },
+  subjectItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 10,
     padding: 10,
     borderRadius: 15,
   },
-  subjectText: { fontSize: 16, color: Colors.textDark, fontWeight: "500" },
+  subjectText: { fontSize: 16, fontWeight: "500" },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 15 },
   gridItem: {
     width: "47%",
     borderRadius: 25,
     alignItems: "center",
     paddingVertical: 28,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
+    boxShadow: "0px 4px 6px rgba(0,0,0,0.12)",
     elevation: 5,
   },
-  gridText: { marginTop: 12, fontSize: 16, fontWeight: "600", color: Colors.textDark, textAlign: "center" },
+  gridText: { marginTop: 12, fontSize: 16, fontWeight: "600", textAlign: "center" },
   logoutButton: {
-    backgroundColor: Colors.secondary,
     paddingVertical: 18,
     borderRadius: 35,
     flexDirection: "row",
@@ -244,10 +289,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     marginTop: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 5,
+    boxShadow: "0px 4px 5px rgba(0,0,0,0.25)",
     elevation: 6,
   },
   logoutButtonText: { color: "#fff", fontSize: 18, fontWeight: "700" },

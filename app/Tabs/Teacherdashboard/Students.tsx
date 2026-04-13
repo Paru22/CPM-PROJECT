@@ -1,25 +1,25 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  TouchableOpacity,
-  Modal,
-  ScrollView,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
-import { collection, getDocs, query, orderBy, doc, getDoc } from "firebase/firestore";
-import { db } from "../../../config/firebaseConfig";
-import Colors from "../../../assets/images/colors";
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { collection, doc, getDoc, getDocs, orderBy, query } from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    FlatList,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { db } from "../../../config/firebaseConfig.native";
+import { useTheme } from "../../../context/ThemeContext";
 
-const { width } = Dimensions.get("window");
+const { height } = Dimensions.get("window");
 
 interface Student {
   id: string;
@@ -47,6 +47,7 @@ interface StudentDetails extends Student {
 
 export default function TeacherStudentList() {
   const router = useRouter();
+  const { colors, theme, toggleTheme } = useTheme();
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -179,12 +180,14 @@ export default function TeacherStudentList() {
           key={sem}
           style={[
             styles.semesterButton,
+            { backgroundColor: colors.card, borderColor: colors.border },
             selectedSemester === sem && styles.selectedSemesterButton
           ]}
           onPress={() => handleSemesterChange(sem)}
         >
           <Text style={[
             styles.semesterButtonText,
+            { color: colors.textLight },
             selectedSemester === sem && styles.selectedSemesterButtonText
           ]}>
             {sem === "All" ? "All" : `Sem ${sem}`}
@@ -197,12 +200,12 @@ export default function TeacherStudentList() {
   // ✅ Render each student card
   const renderStudent = ({ item, index }: { item: Student; index: number }) => (
     <TouchableOpacity
-      style={styles.studentCard}
+      style={[styles.studentCard, { backgroundColor: colors.card }]}
       onPress={() => fetchStudentDetails(item)}
       activeOpacity={0.7}
     >
       <LinearGradient
-        colors={['#fff', '#f8f9fa']}
+        colors={[colors.card, `${colors.background}`]}
         style={styles.cardGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
@@ -212,11 +215,11 @@ export default function TeacherStudentList() {
             <Text style={styles.serialNumber}>{index + 1}</Text>
           </View>
           <View style={styles.studentInfo}>
-            <Text style={styles.studentName}>{item.Name}</Text>
-            <Text style={styles.studentDetail}>Roll No: {item.rollNo}</Text>
-            <Text style={styles.studentDetail}>Semester: {item.semester}</Text>
+            <Text style={[styles.studentName, { color: colors.textDark }]}>{item.Name}</Text>
+            <Text style={[styles.studentDetail, { color: colors.textLight }]}>Roll No: {item.rollNo}</Text>
+            <Text style={[styles.studentDetail, { color: colors.textLight }]}>Semester: {item.semester}</Text>
           </View>
-          <Ionicons name="chevron-forward" size={24} color="#7384bf" />
+          <Ionicons name="chevron-forward" size={24} color={colors.primary} />
         </View>
       </LinearGradient>
     </TouchableOpacity>
@@ -232,18 +235,18 @@ export default function TeacherStudentList() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.loadingText}>Loading Students...</Text>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textDark }]}>Loading Students...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient colors={['#7384bf', '#0c69ff']} style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
         <View style={styles.headerContent}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -252,27 +255,31 @@ export default function TeacherStudentList() {
             <Text style={styles.headerTitle}>Student Management</Text>
             <Text style={styles.headerSubtitle}>View and manage student records</Text>
           </View>
+          {/* Theme Toggle Button */}
+          <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
+            <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
+          </TouchableOpacity>
         </View>
       </LinearGradient>
 
       <View style={styles.content}>
         {/* Semester Filters */}
         <View style={styles.filterSection}>
-          <Text style={styles.sectionTitle}>Filter by Semester</Text>
+          <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Filter by Semester</Text>
           {renderSemesterFilters()}
         </View>
 
         {/* Stats Card */}
-        <View style={styles.statsCard}>
-          <Text style={styles.statsValue}>{stats.total}</Text>
-          <Text style={styles.statsLabel}>Students in Selected Semester</Text>
+        <View style={[styles.statsCard, { backgroundColor: colors.card }]}>
+          <Text style={[styles.statsValue, { color: colors.primary }]}>{stats.total}</Text>
+          <Text style={[styles.statsLabel, { color: colors.textLight }]}>Students in Selected Semester</Text>
         </View>
 
         {/* Students List */}
         {filteredStudents.length === 0 ? (
           <View style={styles.emptyContainer}>
-            <Ionicons name="people-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyText}>No students found in this semester</Text>
+            <Ionicons name="people-outline" size={64} color={colors.textLight} />
+            <Text style={[styles.emptyText, { color: colors.textLight }]}>No students found in this semester</Text>
           </View>
         ) : (
           <FlatList
@@ -293,8 +300,8 @@ export default function TeacherStudentList() {
         onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <LinearGradient colors={['#7384bf', '#0c69ff']} style={styles.modalHeader}>
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Student Details</Text>
               <TouchableOpacity onPress={() => setModalVisible(false)}>
                 <Ionicons name="close" size={24} color="white" />
@@ -304,118 +311,119 @@ export default function TeacherStudentList() {
             <ScrollView style={styles.modalBody}>
               {attendanceLoading ? (
                 <View style={styles.loadingContainer}>
-                  <ActivityIndicator size="large" color="#7384bf" />
-                  <Text style={styles.loadingText}>Loading details...</Text>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={[styles.loadingText, { color: colors.textDark }]}>Loading details...</Text>
                 </View>
               ) : selectedStudent && (
                 <>
                   {/* Personal Information */}
                   <View style={styles.infoSection}>
-                    <Text style={styles.sectionTitle}>Personal Information</Text>
-                    <View style={styles.infoCard}>
+                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Personal Information</Text>
+                    <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
                       <View style={styles.infoRow}>
-                        <Ionicons name="person-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Full Name:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.Name}</Text>
+                        <Ionicons name="person-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Full Name:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.Name}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="call-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Phone:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.phone || "N/A"}</Text>
+                        <Ionicons name="call-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Phone:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.phone || "N/A"}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="people-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Parent Phone:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.parentPhone || "N/A"}</Text>
+                        <Ionicons name="people-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Parent Phone:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.parentPhone || "N/A"}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="mail-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Email:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.email || "N/A"}</Text>
+                        <Ionicons name="mail-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Email:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.email || "N/A"}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="home-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Address:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.address || "N/A"}</Text>
+                        <Ionicons name="home-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Address:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.address || "N/A"}</Text>
                       </View>
                     </View>
                   </View>
 
                   {/* Academic Information */}
                   <View style={styles.infoSection}>
-                    <Text style={styles.sectionTitle}>Academic Information</Text>
-                    <View style={styles.infoCard}>
+                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Academic Information</Text>
+                    <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
                       <View style={styles.infoRow}>
-                        <Ionicons name="school-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Department:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.department}</Text>
+                        <Ionicons name="school-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Department:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.department}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="book-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Semester:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.semester}</Text>
+                        <Ionicons name="book-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Semester:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.semester}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="qr-code-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Roll No:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.rollNo}</Text>
+                        <Ionicons name="qr-code-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Roll No:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.rollNo}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="grid-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Class Roll No:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.classRollNo || "N/A"}</Text>
+                        <Ionicons name="grid-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Class Roll No:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.classRollNo || "N/A"}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="trophy-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Board Roll No:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.boardRollNo || "N/A"}</Text>
+                        <Ionicons name="trophy-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Board Roll No:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.boardRollNo || "N/A"}</Text>
                       </View>
                     </View>
                   </View>
 
                   {/* Attendance Information */}
                   <View style={styles.infoSection}>
-                    <Text style={styles.sectionTitle}>Attendance Overview</Text>
-                    <View style={styles.attendanceCard}>
+                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Attendance Overview</Text>
+                    <View style={[styles.attendanceCard, { backgroundColor: colors.background }]}>
                       <View style={styles.attendanceStats}>
                         <View style={styles.attendanceStat}>
-                          <Text style={styles.attendanceStatValue}>{selectedStudent.totalClasses || 0}</Text>
-                          <Text style={styles.attendanceStatLabel}>Total Classes</Text>
+                          <Text style={[styles.attendanceStatValue, { color: colors.primary }]}>{selectedStudent.totalClasses || 0}</Text>
+                          <Text style={[styles.attendanceStatLabel, { color: colors.textLight }]}>Total Classes</Text>
                         </View>
                         <View style={styles.attendanceStat}>
-                          <Text style={styles.attendanceStatValue}>{selectedStudent.presentClasses || 0}</Text>
-                          <Text style={styles.attendanceStatLabel}>Present</Text>
+                          <Text style={[styles.attendanceStatValue, { color: colors.primary }]}>{selectedStudent.presentClasses || 0}</Text>
+                          <Text style={[styles.attendanceStatLabel, { color: colors.textLight }]}>Present</Text>
                         </View>
                         <View style={styles.attendanceStat}>
                           <Text style={[
                             styles.attendanceStatValue,
                             (selectedStudent.attendancePercentage || 0) >= 75 ? styles.goodAttendance :
                             (selectedStudent.attendancePercentage || 0) >= 60 ? styles.warningAttendance :
-                            styles.poorAttendance
+                            styles.poorAttendance,
+                            { color: (selectedStudent.attendancePercentage || 0) >= 75 ? "#4CAF50" : (selectedStudent.attendancePercentage || 0) >= 60 ? "#FF9800" : "#F44336" }
                           ]}>
                             {selectedStudent.attendancePercentage || 0}%
                           </Text>
-                          <Text style={styles.attendanceStatLabel}>Percentage</Text>
+                          <Text style={[styles.attendanceStatLabel, { color: colors.textLight }]}>Percentage</Text>
                         </View>
                       </View>
                       
                       {/* Monthly Attendance */}
                       {selectedStudent.monthlyAttendance && Object.keys(selectedStudent.monthlyAttendance).length > 0 && (
                         <View style={styles.monthlyAttendance}>
-                          <Text style={styles.monthlyTitle}>Monthly Attendance</Text>
+                          <Text style={[styles.monthlyTitle, { color: colors.textDark }]}>Monthly Attendance</Text>
                           {Object.entries(selectedStudent.monthlyAttendance)
                             .sort((a, b) => b[0].localeCompare(a[0]))
                             .map(([month, data]) => (
                               <View key={month} style={styles.monthlyItem}>
-                                <Text style={styles.monthlyMonth}>{month}</Text>
-                                <View style={styles.monthlyBar}>
+                                <Text style={[styles.monthlyMonth, { color: colors.textLight }]}>{month}</Text>
+                                <View style={[styles.monthlyBar, { backgroundColor: colors.border }]}>
                                   <View style={[
                                     styles.monthlyFill,
                                     { width: `${data.percentage}%`, backgroundColor: data.percentage >= 75 ? "#4CAF50" : data.percentage >= 60 ? "#FF9800" : "#F44336" }
                                   ]} />
                                 </View>
-                                <Text style={styles.monthlyPercent}>{data.percentage}%</Text>
-                                <Text style={styles.monthlyDetails}>
+                                <Text style={[styles.monthlyPercent, { color: colors.textLight }]}>{data.percentage}%</Text>
+                                <Text style={[styles.monthlyDetails, { color: colors.textLight }]}>
                                   {data.present}/{data.total} days
                                 </Text>
                               </View>
@@ -427,17 +435,17 @@ export default function TeacherStudentList() {
 
                   {/* Additional Information */}
                   <View style={styles.infoSection}>
-                    <Text style={styles.sectionTitle}>Additional Information</Text>
-                    <View style={styles.infoCard}>
+                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Additional Information</Text>
+                    <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
                       <View style={styles.infoRow}>
-                        <Ionicons name="calendar-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Date of Birth:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.dateOfBirth || "N/A"}</Text>
+                        <Ionicons name="calendar-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Date of Birth:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.dateOfBirth || "N/A"}</Text>
                       </View>
                       <View style={styles.infoRow}>
-                        <Ionicons name="water-outline" size={20} color="#7384bf" />
-                        <Text style={styles.infoLabel}>Blood Group:</Text>
-                        <Text style={styles.infoValue}>{selectedStudent.bloodGroup || "N/A"}</Text>
+                        <Ionicons name="water-outline" size={20} color={colors.primary} />
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Blood Group:</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.bloodGroup || "N/A"}</Text>
                       </View>
                     </View>
                   </View>
@@ -454,7 +462,6 @@ export default function TeacherStudentList() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
   },
   header: {
     padding: 20,
@@ -474,6 +481,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 15,
+  },
+  themeToggle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerTextContainer: {
     flex: 1,
@@ -500,7 +515,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginBottom: 10,
-    color: "#333",
   },
   semesterScroll: {
     flexGrow: 0,
@@ -512,27 +526,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 8,
     borderRadius: 20,
-    backgroundColor: "#fff",
     marginRight: 10,
     elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    borderWidth: 1,
+    boxShadow: "0px 1px 2px rgba(0,0,0,0.05)",
   },
   selectedSemesterButton: {
     backgroundColor: "#7384bf",
+    borderColor: "#7384bf",
   },
   semesterButtonText: {
     fontSize: 14,
-    color: "#666",
   },
   selectedSemesterButtonText: {
     color: "#fff",
     fontWeight: "600",
   },
   statsCard: {
-    backgroundColor: "#fff",
     borderRadius: 12,
     padding: 15,
     alignItems: "center",
@@ -542,11 +552,9 @@ const styles = StyleSheet.create({
   statsValue: {
     fontSize: 28,
     fontWeight: "bold",
-    color: "#7384bf",
   },
   statsLabel: {
     fontSize: 12,
-    color: "#666",
     marginTop: 5,
   },
   listContainer: {
@@ -557,10 +565,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
     elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    boxShadow: "0px 1px 2px rgba(0,0,0,0.05)",
   },
   cardGradient: {
     padding: 15,
@@ -589,12 +594,10 @@ const styles = StyleSheet.create({
   studentName: {
     fontSize: 16,
     fontWeight: "bold",
-    color: "#333",
     marginBottom: 4,
   },
   studentDetail: {
     fontSize: 12,
-    color: "#666",
   },
   emptyContainer: {
     alignItems: "center",
@@ -603,7 +606,6 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "#999",
     marginTop: 10,
   },
   loadingContainer: {
@@ -613,7 +615,6 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 10,
-    color: "#7384bf",
   },
   modalOverlay: {
     flex: 1,
@@ -621,7 +622,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
   modalContent: {
-    backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: "90%",
@@ -646,7 +646,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   infoCard: {
-    backgroundColor: "#f8f9fa",
     borderRadius: 12,
     padding: 15,
   },
@@ -659,17 +658,14 @@ const styles = StyleSheet.create({
   infoLabel: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#666",
     marginLeft: 8,
     width: 110,
   },
   infoValue: {
     fontSize: 14,
-    color: "#333",
     flex: 1,
   },
   attendanceCard: {
-    backgroundColor: "#f8f9fa",
     borderRadius: 12,
     padding: 15,
   },
@@ -684,11 +680,9 @@ const styles = StyleSheet.create({
   attendanceStatValue: {
     fontSize: 24,
     fontWeight: "bold",
-    color: "#7384bf",
   },
   attendanceStatLabel: {
     fontSize: 12,
-    color: "#666",
     marginTop: 5,
   },
   goodAttendance: {
@@ -706,7 +700,6 @@ const styles = StyleSheet.create({
   monthlyTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#333",
     marginBottom: 10,
   },
   monthlyItem: {
@@ -715,12 +708,10 @@ const styles = StyleSheet.create({
   monthlyMonth: {
     fontSize: 12,
     fontWeight: "600",
-    color: "#666",
     marginBottom: 5,
   },
   monthlyBar: {
     height: 6,
-    backgroundColor: "#e0e0e0",
     borderRadius: 3,
     overflow: "hidden",
     marginBottom: 5,
@@ -731,11 +722,9 @@ const styles = StyleSheet.create({
   },
   monthlyPercent: {
     fontSize: 11,
-    color: "#666",
     marginBottom: 2,
   },
   monthlyDetails: {
     fontSize: 10,
-    color: "#999",
   },
 });

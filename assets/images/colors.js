@@ -1,11 +1,21 @@
-export const colors = {
-  primary: "#7384bfff",     // Royal Blue (Main buttons & highlights)
-  secondary: "#0c69ffff",   // Bright Blue Accent
-  background: "#c7d8e9ff",  // Soft light background
-  card: "rgba(255, 255, 255, 1)",        // Pure white cards and sections
-  textDark: "#181b20ff",    // Main dark text
-  textLight: "#6B7280",   // Subtle gray text
-  border: "#c0e213ff",      // Soft border color
+export const LightColors = {
+  primary: "#7384BF",       // Royal Blue
+  secondary: "#0C69FF",     // Bright Blue Accent
+  background: "#C7D8E9",    // Soft light background
+  card: "#FFFFFF",          // White cards
+  textDark: "#181B20",      // Main text
+  textLight: "#6B7280",     // Subtle text
+  border: "#E2E8F0",        // Softer border (fixed 👀)
 };
 
-export default colors;
+export const DarkColors = {
+  primary: "#8FA2FF",       // Slightly brighter for dark
+  secondary: "#3B82F6",
+  background: "#0F172A",    // Deep dark
+  card: "#1E293B",          // Dark cards
+  textDark: "#E2E8F0",      // Light text
+  textLight: "#94A3B8",     // Subtle gray
+  border: "#334155",
+};
+
+export default { LightColors, DarkColors };

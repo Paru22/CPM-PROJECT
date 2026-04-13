@@ -1,23 +1,26 @@
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ScrollView,
-  ActivityIndicator,
-} from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
-import { addDoc, collection, query, where, getDocs } from "firebase/firestore";
-import { db } from "../../config/firebaseConfig";
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { addDoc, collection, getDocs, query, where } from "firebase/firestore";
+import React, { useState } from "react";
+import {
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { db } from "../../config/firebaseConfig.native";
+import { useTheme } from "../../context/ThemeContext";
 
 export default function StudentSignup() {
   const router = useRouter();
+  const { colors } = useTheme();
+  
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [rollNo, setRollNo] = useState("");
@@ -33,17 +36,6 @@ export default function StudentSignup() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
-  // Department options - kept for future use if we want to add dropdown
-  // const semesters = ["1", "2", "3", "4", "5", "6", "7", "8"];
-  // const departments = [
-  //   "Computer Engineering",
-  //   "Information Technology",
-  //   "Electronics Engineering",
-  //   "Mechanical Engineering",
-  //   "Civil Engineering",
-  //   "Electrical Engineering",
-  // ];
 
   const validateEmail = (email: string) => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -125,7 +117,7 @@ export default function StudentSignup() {
     setLoading(true);
 
     try {
-      // Check if roll number already exists
+      // Check if roll number already exists in requests
       const rollQuery = query(collection(db, "studentRequests"), where("rollNo", "==", rollNo));
       const rollSnapshot = await getDocs(rollQuery);
       
@@ -157,7 +149,7 @@ export default function StudentSignup() {
         phone: phone.trim(),
         parentPhone: parentPhone.trim() || "",
         address: address.trim() || "",
-        password, // In production, this should be hashed
+        password,
         role: "student",
         status: "pending",
         createdAt: new Date().toISOString(),
@@ -188,8 +180,8 @@ export default function StudentSignup() {
       setPassword("");
       setConfirmPassword("");
       
-    } catch (error) {
-      console.error("Signup error:", error);
+    } catch (_error) {
+      console.error("Signup error:", _error);
       Alert.alert("Error", "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
@@ -197,8 +189,8 @@ export default function StudentSignup() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <LinearGradient colors={['#7384bf', '#0c69ff']} style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
         <View style={styles.headerContent}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -211,229 +203,219 @@ export default function StudentSignup() {
       </LinearGradient>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.formCard}>
+        <View style={[
+          styles.formCard,
+          {
+            backgroundColor: colors.card,
+            boxShadow: "0px 2px 4px rgba(0,0,0,0.1)",
+          }
+        ]}>
           {/* Personal Information Section */}
-          <Text style={styles.sectionTitle}>Personal Information</Text>
+          <Text style={[styles.sectionTitle, { color: colors.primary }]}>Personal Information</Text>
           
-          {/* Name Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Full Name *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="person-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Full Name *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="person-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Enter your full name"
+                placeholderTextColor={colors.textLight}
                 value={name}
                 onChangeText={setName}
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Email Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Email Address *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="mail-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Email Address *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="mail-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Enter your email"
+                placeholderTextColor={colors.textLight}
                 value={email}
                 onChangeText={setEmail}
                 autoCapitalize="none"
                 keyboardType="email-address"
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Phone Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Phone Number *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="call-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Phone Number *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="call-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Enter 10-digit phone number"
+                placeholderTextColor={colors.textLight}
                 value={phone}
                 onChangeText={setPhone}
                 keyboardType="phone-pad"
                 maxLength={10}
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Parent Phone Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>{"Parent's Phone Number"}</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="people-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>{"Parent's Phone Number"}</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="people-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Enter parent's phone number"
+                placeholderTextColor={colors.textLight}
                 value={parentPhone}
                 onChangeText={setParentPhone}
                 keyboardType="phone-pad"
                 maxLength={10}
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Address Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Address</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="home-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Address</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="home-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={[styles.input, styles.textArea]}
+                style={[styles.input, styles.textArea, { color: colors.textDark }]}
                 placeholder="Enter your address"
+                placeholderTextColor={colors.textLight}
                 value={address}
                 onChangeText={setAddress}
                 multiline
                 numberOfLines={3}
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Academic Information Section */}
-          <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Academic Information</Text>
+          <Text style={[styles.sectionTitle, { color: colors.primary, marginTop: 20 }]}>Academic Information</Text>
 
-          {/* Roll Number Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>University Roll Number *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="qr-code-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>University Roll Number *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="qr-code-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Enter university roll number (e.g., STU001)"
+                placeholderTextColor={colors.textLight}
                 value={rollNo}
                 onChangeText={setRollNo}
                 autoCapitalize="characters"
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Class Roll Number Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Class Roll Number *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="grid-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Class Roll Number *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="grid-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Enter class roll number (e.g., 01)"
+                placeholderTextColor={colors.textLight}
                 value={classRollNo}
                 onChangeText={setClassRollNo}
                 keyboardType="numeric"
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Board Roll Number Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Board Roll Number</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="trophy-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Board Roll Number</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="trophy-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Enter board roll number"
+                placeholderTextColor={colors.textLight}
                 value={boardRollNo}
                 onChangeText={setBoardRollNo}
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Department Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Department *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="business-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Department *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="business-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Select department"
+                placeholderTextColor={colors.textLight}
                 value={department}
                 onChangeText={setDepartment}
-                placeholderTextColor="#999"
               />
             </View>
-            <Text style={styles.hintText}>Enter: Computer Engineering, IT, etc.</Text>
+            <Text style={[styles.hintText, { color: colors.textLight }]}>Enter: Computer Engineering, IT, etc.</Text>
           </View>
 
-          {/* Semester Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Semester *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="book-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Semester *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="book-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Enter semester (1-8)"
+                placeholderTextColor={colors.textLight}
                 value={semester}
                 onChangeText={setSemester}
                 keyboardType="numeric"
                 maxLength={1}
-                placeholderTextColor="#999"
               />
             </View>
           </View>
 
-          {/* Password Section */}
-          <Text style={[styles.sectionTitle, { marginTop: 20 }]}>Account Security</Text>
+          <Text style={[styles.sectionTitle, { color: colors.primary, marginTop: 20 }]}>Account Security</Text>
 
-          {/* Password Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Password *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="lock-closed-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Password *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="lock-closed-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Create password (min. 6 characters)"
+                placeholderTextColor={colors.textLight}
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
-                placeholderTextColor="#999"
               />
               <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
-                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#7384bf" />
+                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.primary} />
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Confirm Password Input */}
           <View style={styles.inputContainer}>
-            <Text style={styles.label}>Confirm Password *</Text>
-            <View style={styles.inputWrapper}>
-              <Ionicons name="lock-closed-outline" size={20} color="#7384bf" style={styles.inputIcon} />
+            <Text style={[styles.label, { color: colors.textDark }]}>Confirm Password *</Text>
+            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
+              <Ionicons name="lock-closed-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { color: colors.textDark }]}
                 placeholder="Confirm your password"
+                placeholderTextColor={colors.textLight}
                 value={confirmPassword}
                 onChangeText={setConfirmPassword}
                 secureTextEntry={!showConfirmPassword}
-                placeholderTextColor="#999"
               />
               <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeIcon}>
-                <Ionicons name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color="#7384bf" />
+                <Ionicons name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.primary} />
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Info Box */}
-          <View style={styles.infoBox}>
-            <Ionicons name="information-circle-outline" size={20} color="#7384bf" />
-            <Text style={styles.infoText}>
-              Your request will be reviewed by your class teacher. You&apos;ll receive approval notification once verified.
+          <View style={[styles.infoBox, { backgroundColor: `${colors.primary}15` }]}>
+            <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
+            <Text style={[styles.infoText, { color: colors.primary }]}>
+              {"Your request will be reviewed by your class teacher. You'll receive approval notification once verified."}
             </Text>
           </View>
 
-          {/* Submit Button */}
           <TouchableOpacity onPress={handleRequest} disabled={loading}>
             <LinearGradient
-              colors={['#7384bf', '#0c69ff']}
+              colors={[colors.primary, colors.secondary]}
               style={styles.submitButton}
             >
               {loading ? (
@@ -447,11 +429,10 @@ export default function StudentSignup() {
             </LinearGradient>
           </TouchableOpacity>
 
-          {/* Login Link */}
           <View style={styles.loginContainer}>
-            <Text style={styles.loginText}>Already have an account? </Text>
+            <Text style={[styles.loginText, { color: colors.textLight }]}>Already have an account? </Text>
             <TouchableOpacity onPress={() => router.push("/Login/studentlogin")}>
-              <Text style={styles.loginLink}>Login here</Text>
+              <Text style={[styles.loginLink, { color: colors.primary }]}>Login here</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -463,7 +444,6 @@ export default function StudentSignup() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f5f5",
   },
   header: {
     padding: 20,
@@ -503,20 +483,14 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   formCard: {
-    backgroundColor: "#fff",
     borderRadius: 20,
     padding: 20,
     marginBottom: 20,
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    elevation: 3, // Android shadow (kept)
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: "#7384bf",
     marginBottom: 15,
     marginTop: 10,
   },
@@ -526,16 +500,13 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#333",
     marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#e0e0e0",
     borderRadius: 12,
-    backgroundColor: "#f9f9f9",
     paddingHorizontal: 12,
   },
   inputIcon: {
@@ -545,7 +516,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 14,
     fontSize: 16,
-    color: "#333",
   },
   textArea: {
     minHeight: 80,
@@ -557,13 +527,11 @@ const styles = StyleSheet.create({
   },
   hintText: {
     fontSize: 12,
-    color: "#999",
     marginTop: 5,
     marginLeft: 5,
   },
   infoBox: {
     flexDirection: "row",
-    backgroundColor: "#f0f7ff",
     padding: 12,
     borderRadius: 12,
     marginBottom: 20,
@@ -573,7 +541,6 @@ const styles = StyleSheet.create({
   infoText: {
     flex: 1,
     fontSize: 12,
-    color: "#7384bf",
     lineHeight: 18,
   },
   submitButton: {
@@ -598,11 +565,9 @@ const styles = StyleSheet.create({
   },
   loginText: {
     fontSize: 14,
-    color: "#666",
   },
   loginLink: {
     fontSize: 14,
-    color: "#7384bf",
     fontWeight: "600",
   },
 });
