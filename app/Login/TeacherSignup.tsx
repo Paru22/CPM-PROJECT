@@ -58,11 +58,16 @@ export default function TeacherSignup() {
 
     setLoading(true);
     try {
-      // Create Firebase Auth account
+      console.log("Step 1: Creating Firebase Auth account for:", form.email);
+      
+      // 1. Create Firebase Auth account
       const userCredential = await createUserWithEmailAndPassword(auth, form.email, form.password);
       const teacherUid = userCredential.user.uid;
+      console.log("Step 2: Auth user created with UID:", teacherUid);
 
-      // Create teacher request document in Firestore
+      console.log("Step 3: Creating teacher request in Firestore...");
+      
+      // 2. Write pending request (NO password stored)
       await setDoc(doc(db, "teacherRequests", teacherUid), {
         teacherId: teacherUid,
         name: form.name,
@@ -74,7 +79,9 @@ export default function TeacherSignup() {
         createdAt: serverTimestamp(),
       });
 
-      // Show custom success modal instead of Alert
+      console.log("Step 4: Teacher request created successfully!");
+      
+      // Show custom success modal
       setShowSuccessModal(true);
     } catch (err: any) {
       console.error("Signup error:", err);
@@ -88,6 +95,8 @@ export default function TeacherSignup() {
         message = "❌ Invalid email address. Please enter a valid email.";
       } else if (err.code === "auth/network-request-failed") {
         message = "🌐 Network error. Please check your internet connection and try again.";
+      } else if (err.code === "permission-denied") {
+        message = "🔒 Firestore permission denied. Check your security rules.";
       }
       
       Alert.alert("Registration Failed", message);

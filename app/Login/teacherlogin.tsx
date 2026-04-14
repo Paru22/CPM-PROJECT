@@ -26,57 +26,87 @@ export default function TeacherLoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert("Error", "Please enter both Email and Password");
+ const handleLogin = async () => {
+  if (!email || !password) {
+    Alert.alert("Error", "Please enter both Email and Password");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    console.log("1️⃣ Attempting login with email:", email.trim());
+    
+    // 1. Sign in with Firebase Authentication
+    const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
+    const uid = userCredential.user.uid;
+    console.log("2️⃣ Login successful! User UID:", uid);
+    console.log("3️⃣ User email:", userCredential.user.email);
+
+    // 2. Fetch the user's role from Firestore using the Auth UID
+    const teacherRef = doc(db, "teachers", uid);
+    console.log("4️⃣ Looking for teacher document at:", teacherRef.path);
+    
+    const teacherSnap = await getDoc(teacherRef);
+    console.log("5️⃣ Document exists?", teacherSnap.exists());
+
+    if (!teacherSnap.exists()) {
+      // Check if there's a pending request
+      const requestRef = doc(db, "teacherRequests", uid);
+      const requestSnap = await getDoc(requestRef);
+      
+      if (requestSnap.exists()) {
+        const requestData = requestSnap.data();
+        console.log("Found pending request with status:", requestData.status);
+        
+        if (requestData.status === "pending") {
+          Alert.alert("Account Pending", "Your account is waiting for HOD approval. Please check back later.");
+        } else if (requestData.status === "approved") {
+          Alert.alert("Error", "Your account was approved but teacher profile is missing. Please contact HOD.");
+        } else {
+          Alert.alert("Login Failed", "Teacher profile not found. Please contact the administrator.");
+        }
+      } else {
+        console.log("No teacher document OR request found for UID:", uid);
+        Alert.alert("Login Failed", "Teacher profile not found. Please contact the administrator.");
+      }
+      setLoading(false);
       return;
     }
 
-    setLoading(true);
-    try {
-      // 1. Sign in with Firebase Authentication
-      const userCredential = await signInWithEmailAndPassword(auth, email.trim(), password);
-      const uid = userCredential.user.uid;
+    const data = teacherSnap.data();
+    const role = (data.role || "").toLowerCase();
+    console.log("6️⃣ Teacher role:", role);
 
-      // 2. Fetch the user's role from Firestore using the Auth UID
-      const teacherRef = doc(db, "teachers", uid);
-      const teacherSnap = await getDoc(teacherRef);
-
-      if (!teacherSnap.exists()) {
-        Alert.alert("Login Failed", "Teacher profile not found. Please contact the administrator.");
-        setLoading(false);
-        return;
-      }
-
-      const data = teacherSnap.data();
-      const role = (data.role || "").toLowerCase();
-
-      // 3. Navigate based on role
-      if (role === "hod") {
-        router.replace("/Tabs/Teacherdashboard/HODdashboard");
-      } else if (role === "teacher") {
-        router.replace("/Tabs/Teacherdashboard/Teacherdashboard");
-      } else if (role === "class_teacher") {
-        router.replace("/Tabs/Teacherdashboard/ClassTeacherDashboard");
-      } else {
-        Alert.alert("Access Denied", `Role "${role}" is not authorized.`);
-      }
-    } catch (err: any) {
-      console.error("Login error:", err);
-      let message = "Login failed. Please check your email and password.";
-      if (err.code === "auth/user-not-found") {
-        message = "No account found with this email.";
-      } else if (err.code === "auth/wrong-password") {
-        message = "Incorrect password. Please try again.";
-      } else if (err.code === "auth/invalid-email") {
-        message = "Invalid email format.";
-      }
-      Alert.alert("Login Failed", message);
-    } finally {
-      setLoading(false);
+    // 3. Navigate based on role
+    if (role === "hod") {
+      router.replace("/Tabs/Teacherdashboard/HODdashboard");
+    } else if (role === "teacher") {
+      router.replace("/Tabs/Teacherdashboard/Teacherdashboard");
+    } else if (role === "class_teacher") {
+      router.replace("/Tabs/Teacherdashboard/ClassTeacherDashboard");
+    } else {
+      Alert.alert("Access Denied", `Role "${role}" is not authorized.`);
     }
-  };
-
+  } catch (err: any) {
+    console.error("❌ Login error:", err);
+    console.error("Error code:", err.code);
+    console.error("Error message:", err.message);
+    
+    let message = "Login failed. Please check your email and password.";
+    if (err.code === "auth/user-not-found") {
+      message = "No account found with this email.";
+    } else if (err.code === "auth/wrong-password") {
+      message = "Incorrect password. Please try again.";
+    } else if (err.code === "auth/invalid-email") {
+      message = "Invalid email format.";
+    } else if (err.code === "auth/invalid-credential") {
+      message = "Invalid email or password. Please try again.";
+    }
+    Alert.alert("Login Failed", message);
+  } finally {
+    setLoading(false);
+  }
+};
   return (
     <SafeAreaView style={{ flex: 1 }}>
       <ScrollView contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}>

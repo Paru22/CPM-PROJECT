@@ -12,9 +12,8 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { collection, doc, getDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 
-import { createUserWithEmailAndPassword, fetchSignInMethodsForEmail, getAuth } from "firebase/auth";
-import { collection, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import { db } from "../../../config/firebaseConfig.native";
 import { useTheme } from "../../../context/ThemeContext";
 
@@ -24,7 +23,7 @@ interface TeacherRequest {
   name: string;
   email: string;
   department: string;
-  password: string;
+  phone?: string;        // ✅ added optional phone field
   status: string;
 }
 
@@ -59,57 +58,57 @@ const HODNotifications = () => {
   };
 
   const approveTeacher = async (teacher: TeacherRequest) => {
-    if (approvingId === teacher.id) return;
-    setApprovingId(teacher.id);
+  if (approvingId === teacher.id) return;
+  setApprovingId(teacher.id);
 
-    try {
-      console.log("Starting approval for:", teacher.email);
-      const auth = getAuth();
-      const signInMethods = await fetchSignInMethodsForEmail(auth, teacher.email);
-      if (signInMethods.length > 0) {
-        throw new Error(`Email ${teacher.email} is already registered. Use a different email.`);
-      }
+  try {
+    console.log("📝 Approving teacher:", teacher.email);
+    console.log("📝 Teacher UID (will be used as document ID):", teacher.id);
+    
+    // 1. Update the request status to 'approved'
+    await updateDoc(doc(db, "teacherRequests", teacher.id), {
+      status: "approved",
+      approvedAt: new Date().toISOString(),
+    });
+    console.log("✅ Request status updated to approved");
 
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        teacher.email,
-        teacher.password
-      );
-      const uid = userCredential.user.uid;
+    // 2. Create the teacher document in 'teachers' collection
+    const teacherDocRef = doc(db, "teachers", teacher.id);
+    const teacherData = {
+      uid: teacher.id,
+      name: teacher.name,
+      email: teacher.email,
+      department: teacher.department,
+      role: "teacher",
+      approvedAt: new Date().toISOString(),
+      phone: teacher.phone || "",
+    };
+    
+    console.log("📝 Creating teacher document with data:", teacherData);
+    await setDoc(teacherDocRef, teacherData);
+    console.log("✅ Teacher document created at:", teacherDocRef.path);
 
-      await setDoc(doc(db, "teachers", uid), {
-        uid: uid,
-        teacherId: teacher.id,
-        name: teacher.name,
-        email: teacher.email,
-        department: teacher.department,
-        role: "teacher",
-        createdAt: new Date().toISOString(),
-      });
-
-      await updateDoc(doc(db, "teacherRequests", teacher.id), {
-        status: "approved",
-        approvedAt: new Date().toISOString(),
-        authUid: uid,
-      });
-
-      Alert.alert("Success", `✅ Teacher ${teacher.name} approved. They can now log in.`);
-      fetchRequests();
-    } catch (error: any) {
-      console.error("Approval error details:", error);
-      let errorMsg = error.message;
-      if (error.code === 'auth/email-already-in-use') {
-        errorMsg = `Email ${teacher.email} is already in use.`;
-      } else if (error.code === 'auth/weak-password') {
-        errorMsg = 'Password is too weak. Use at least 6 characters.';
-      } else if (error.code === 'permission-denied') {
-        errorMsg = 'Firestore permission denied. Check security rules.';
-      }
-      Alert.alert("Approval Failed", errorMsg);
-    } finally {
-      setApprovingId(null);
+    // Verify the document was created
+    const verifyDoc = await getDoc(teacherDocRef);
+    if (verifyDoc.exists()) {
+      console.log("✅ Verification: Teacher document exists!");
+    } else {
+      console.log("❌ Verification: Teacher document NOT found!");
     }
-  };
+
+    Alert.alert("Success", `✅ Teacher ${teacher.name} approved. They can now log in.`);
+    fetchRequests();
+  } catch (error: any) {
+    console.error("❌ Approval error:", error);
+    let errorMsg = error.message;
+    if (error.code === 'permission-denied') {
+      errorMsg = 'Firestore permission denied. Check security rules.';
+    }
+    Alert.alert("Approval Failed", errorMsg);
+  } finally {
+    setApprovingId(null);
+  }
+};
 
   const rejectTeacher = async (id: string) => {
     Alert.alert(
