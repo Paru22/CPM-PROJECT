@@ -43,6 +43,8 @@ interface Teacher {
   name: string;
   email: string;
   department: string;
+  role: string;
+  status?: string;
 }
 
 interface TeacherSubject {
@@ -109,12 +111,21 @@ export default function AssignSubjects() {
     if (!user?.department) return;
     setLoadingTeachers(true);
     try {
-      const q = query(collection(db, "teachers"), where("department", "==", user.department));
+      // Query teachers in the same department AND who are approved
+      const q = query(
+        collection(db, "teachers"), 
+        where("department", "==", user.department)
+      );
       const snapshot = await getDocs(q);
-      const teachersList = snapshot.docs.map((doc) => ({
+      let teachersList = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
       })) as Teacher[];
+      
+      // Filter out HOD from the list (HOD should not be assigned subjects)
+      teachersList = teachersList.filter(teacher => teacher.role !== "hod");
+      
+      console.log("Fetched teachers:", teachersList.length);
       setTeachers(teachersList);
     } catch (error: any) {
       console.error("Fetch teachers error:", error);
@@ -332,6 +343,9 @@ export default function AssignSubjects() {
           <View>
             <Text style={[styles.teacherName, { color: colors.textDark }]}>{item.name}</Text>
             <Text style={[styles.teacherEmail, { color: colors.textLight }]}>{item.email}</Text>
+            <View style={styles.teacherDeptBadge}>
+              <Text style={[styles.teacherDeptText, { color: colors.primary }]}>{item.department}</Text>
+            </View>
           </View>
           <TouchableOpacity
             style={[styles.assignButton, { backgroundColor: colors.background }]}
@@ -430,7 +444,8 @@ export default function AssignSubjects() {
             ) : teachers.length === 0 ? (
               <View style={styles.emptyContainer}>
                 <Ionicons name="people-outline" size={64} color={colors.textLight} />
-                <Text style={[styles.emptyText, { color: colors.textLight }]}>No teachers in your department</Text>
+                <Text style={[styles.emptyText, { color: colors.textLight }]}>No teachers found in your department</Text>
+                <Text style={[styles.emptySubtext, { color: colors.textLight }]}>Teachers need to be approved by HOD first</Text>
               </View>
             ) : (
               <FlatList data={teachers} renderItem={renderTeacherItem} keyExtractor={(item) => item.id} scrollEnabled={false} contentContainerStyle={styles.listContainer} />
@@ -522,9 +537,11 @@ const styles = StyleSheet.create({
   detailText: { fontSize: 12 },
   deleteButton: { padding: 8 },
   teacherCard: { borderRadius: 12, padding: 12, marginBottom: 12, elevation: 2 },
-  teacherHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  teacherHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
   teacherName: { fontSize: 16, fontWeight: "bold" },
   teacherEmail: { fontSize: 12 },
+  teacherDeptBadge: { marginTop: 4 },
+  teacherDeptText: { fontSize: 11, fontWeight: "500" },
   assignButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 4 },
   assignButtonText: { fontWeight: "600", fontSize: 12 },
   assignedList: { marginTop: 12, paddingTop: 8, borderTopWidth: 1, borderTopColor: "#f0f0f0" },
@@ -551,3 +568,4 @@ const styles = StyleSheet.create({
   subjectOptionName: { fontSize: 16, fontWeight: "500" },
   subjectOptionMeta: { fontSize: 12, marginTop: 2 },
 });
+

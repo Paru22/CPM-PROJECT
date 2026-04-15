@@ -1,8 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import {
-    addDoc,
     collection,
     doc,
     getDoc,
@@ -10,17 +9,20 @@ import {
     query,
     updateDoc,
     where,
+    onSnapshot,
 } from "firebase/firestore";
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
     ActivityIndicator,
     Alert,
+    Animated,
     FlatList,
     Modal,
     RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
+    TextInput,
     TouchableOpacity,
     View,
 } from "react-native";
@@ -47,17 +49,6 @@ interface Student {
   phone?: string;
 }
 
-interface AttendanceRecord {
-  id?: string;
-  studentId: string;
-  studentName: string;
-  subjectId: string;
-  subjectName: string;
-  date: string;
-  status: "present" | "absent";
-  markedBy: string;
-}
-
 interface StudentRequest {
   id: string;
   studentId: string;
@@ -75,31 +66,139 @@ export default function ClassTeacherDashboard() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [classTeacherInfo, setClassTeacherInfo] = useState<any>(null);
+  const [teacherInfo, setTeacherInfo] = useState<any>(null);
   const [assignedSubject, setAssignedSubject] = useState<Subject | null>(null);
   const [students, setStudents] = useState<Student[]>([]);
-  const [attendanceSummary, setAttendanceSummary] = useState<{ [studentId: string]: { present: number; total: number; percentage: number } }>({});
   const [pendingRequests, setPendingRequests] = useState<StudentRequest[]>([]);
   const [showRequestsModal, setShowRequestsModal] = useState(false);
-  const [showAttendanceModal, setShowAttendanceModal] = useState(false);
-  const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
-  const [attendanceHistory, setAttendanceHistory] = useState<AttendanceRecord[]>([]);
-  const [markingAttendance, setMarkingAttendance] = useState(false);
-  const [attendanceSelections, setAttendanceSelections] = useState<{ [studentId: string]: "present" | "absent" }>({});
+  const [showStudentsModal, setShowStudentsModal] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Fetch class teacher data
-  const fetchClassTeacherData = useCallback(async () => {
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
+  const themeRotateAnim = useRef(new Animated.Value(0)).current;
+  const statsScaleAnim = useRef(new Animated.Value(1)).current;
+  const [showThemeTooltip, setShowThemeTooltip] = useState(false);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scaleAnim, {
+        toValue: 1,
+        friction: 8,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const timer = setTimeout(() => {
+      setShowThemeTooltip(true);
+      setTimeout(() => setShowThemeTooltip(false), 3000);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleThemeToggle = () => {
+    Animated.sequence([
+      Animated.timing(themeRotateAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.timing(themeRotateAnim, {
+        toValue: 0,
+        duration: 0,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    toggleTheme();
+  };
+
+  const themeSpin = themeRotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  const animateStatCard = () => {
+    Animated.sequence([
+      Animated.timing(statsScaleAnim, {
+        toValue: 0.95,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.spring(statsScaleAnim, {
+        toValue: 1,
+        friction: 3,
+        tension: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
+
+  // Force refresh function
+  const forceRefreshData = async () => {
+    console.log("Force refreshing data...");
+    setRefreshing(true);
+    await fetchTeacherDataDirect();
+    await fetchClassTeacherData();
+    setRefreshing(false);
+  };
+
+  // Direct fetch function
+  const fetchTeacherDataDirect = async () => {
     if (!user?.uid) return;
 
     try {
+      console.log("Directly fetching teacher data for UID:", user.uid);
+      const teacherRef = doc(db, "teachers", user.uid);
+      const teacherSnap = await getDoc(teacherRef);
+      
+      if (teacherSnap.exists()) {
+        const teacherData = teacherSnap.data();
+        console.log("Fetched teacher data:", teacherData);
+        setTeacherInfo(teacherData);
+      } else {
+        console.log("No teacher document found!");
+      }
+    } catch (error) {
+      console.error("Error fetching teacher data:", error);
+    }
+  };
+
+  // Fetch class teacher data
+  const fetchClassTeacherData = useCallback(async () => {
+    if (!user?.uid) {
+      console.log("No user UID available");
+      setLoading(false);
+      return;
+    }
+
+    try {
+      console.log("Fetching class teacher data for UID:", user.uid);
+      
+      // First, fetch teacher info directly
+      await fetchTeacherDataDirect();
+
+      // Fetch class teacher assignment
       const classTeacherQuery = query(
         collection(db, "classTeachers"),
         where("teacherId", "==", user.uid)
       );
       const classTeacherSnap = await getDocs(classTeacherQuery);
+      
       if (classTeacherSnap.empty) {
+        console.log("No class teacher assignment found");
         Alert.alert("Error", "No class assigned to you. Contact HOD.");
+        setLoading(false);
         return;
       }
+      
       const classData = classTeacherSnap.docs[0].data();
       setClassTeacherInfo({
         semester: classData.semester,
@@ -107,6 +206,7 @@ export default function ClassTeacherDashboard() {
         assignedAt: classData.assignedAt,
       });
 
+      // Fetch assigned subject
       const teacherSubjectQuery = query(
         collection(db, "teacherSubjects"),
         where("teacherId", "==", user.uid)
@@ -120,6 +220,7 @@ export default function ClassTeacherDashboard() {
         }
       }
 
+      // Fetch students in the class
       const studentsQuery = query(
         collection(db, "students"),
         where("semester", "==", classData.semester),
@@ -128,18 +229,19 @@ export default function ClassTeacherDashboard() {
       const studentsSnap = await getDocs(studentsQuery);
       const studentsList = studentsSnap.docs.map(doc => ({
         id: doc.id,
-        ...doc.data()
+        name: doc.data().name || doc.data().Name || "",
+        rollNumber: doc.data().rollNumber || doc.data().rollNo || "",
+        semester: doc.data().semester || "",
+        department: doc.data().department || "",
+        email: doc.data().email || "",
+        phone: doc.data().phone || "",
       } as Student));
       setStudents(studentsList);
 
-      if (assignedSubject) {
-        await fetchAttendanceSummary(studentsList, assignedSubject.id);
-      }
-
+      // Fetch pending student requests
       const requestsQuery = query(
         collection(db, "studentRequests"),
-        where("status", "==", "pending"),
-        where("forClass", "==", `${classData.semester}_${classData.department}`)
+        where("status", "==", "pending")
       );
       const requestsSnap = await getDocs(requestsQuery);
       const requestsList = requestsSnap.docs.map(doc => ({
@@ -155,106 +257,44 @@ export default function ClassTeacherDashboard() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [user, assignedSubject]);
+  }, [user]);
 
-  const fetchAttendanceSummary = async (studentsList: Student[], subjectId: string) => {
-    const summary: { [studentId: string]: { present: number; total: number; percentage: number } } = {};
-    for (const student of studentsList) {
-      const attendanceQuery = query(
-        collection(db, "attendance"),
-        where("studentId", "==", student.id),
-        where("subjectId", "==", subjectId)
-      );
-      const attendanceSnap = await getDocs(attendanceQuery);
-      const records = attendanceSnap.docs.map(doc => doc.data() as AttendanceRecord);
-      const present = records.filter(r => r.status === "present").length;
-      const total = records.length;
-      const percentage = total === 0 ? 0 : (present / total) * 100;
-      summary[student.id] = { present, total, percentage };
-    }
-    setAttendanceSummary(summary);
-  };
+  // Set up real-time listener for teacher data
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    console.log("Setting up real-time listener for teacher:", user.uid);
+    const teacherRef = doc(db, "teachers", user.uid);
+    
+    const unsubscribe = onSnapshot(teacherRef, (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const updatedData = docSnapshot.data();
+        console.log("Real-time update received:", updatedData);
+        setTeacherInfo(updatedData);
+      }
+    }, (error) => {
+      console.error("Snapshot listener error:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user?.uid]);
 
   useEffect(() => {
     fetchClassTeacherData();
   }, [fetchClassTeacherData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      console.log("Screen focused - refreshing data");
+      fetchClassTeacherData();
+      return () => {};
+    }, [fetchClassTeacherData])
+  );
+
   const onRefresh = () => {
+    console.log("Manual refresh triggered");
     setRefreshing(true);
     fetchClassTeacherData();
-  };
-
-  const markAttendance = (studentId: string, status: "present" | "absent") => {
-    setAttendanceSelections(prev => ({ ...prev, [studentId]: status }));
-  };
-
-  const submitAttendance = async () => {
-    if (!assignedSubject) {
-      Alert.alert("Error", "No subject assigned");
-      return;
-    }
-    if (Object.keys(attendanceSelections).length === 0) {
-      Alert.alert("No Selection", "Please mark attendance for at least one student");
-      return;
-    }
-
-    setMarkingAttendance(true);
-    const date = new Date().toISOString().split("T")[0];
-    try {
-      for (const [studentId, status] of Object.entries(attendanceSelections)) {
-        const student = students.find(s => s.id === studentId);
-        if (!student) continue;
-
-        const existingQuery = query(
-          collection(db, "attendance"),
-          where("studentId", "==", studentId),
-          where("subjectId", "==", assignedSubject.id),
-          where("date", "==", date)
-        );
-        const existingSnap = await getDocs(existingQuery);
-        if (!existingSnap.empty) {
-          const existingDoc = existingSnap.docs[0];
-          await updateDoc(doc(db, "attendance", existingDoc.id), {
-            status,
-            markedBy: user?.uid,
-            markedAt: new Date().toISOString(),
-          });
-        } else {
-          await addDoc(collection(db, "attendance"), {
-            studentId,
-            studentName: student.name,
-            subjectId: assignedSubject.id,
-            subjectName: assignedSubject.name,
-            date,
-            status,
-            markedBy: user?.uid,
-            markedAt: new Date().toISOString(),
-          });
-        }
-      }
-      Alert.alert("Success", `Attendance marked for ${Object.keys(attendanceSelections).length} students`);
-      setAttendanceSelections({});
-      await fetchClassTeacherData();
-    } catch (error) {
-      console.error(error);
-      Alert.alert("Error", "Failed to submit attendance");
-    } finally {
-      setMarkingAttendance(false);
-    }
-  };
-
-  const viewStudentAttendance = async (student: Student) => {
-    if (!assignedSubject) return;
-    const attendanceQuery = query(
-      collection(db, "attendance"),
-      where("studentId", "==", student.id),
-      where("subjectId", "==", assignedSubject.id)
-    );
-    const attendanceSnap = await getDocs(attendanceQuery);
-    const records = attendanceSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as AttendanceRecord));
-    setAttendanceHistory(records.sort((a, b) => b.date.localeCompare(a.date)));
-    setSelectedStudent(student);
-    setShowAttendanceModal(true);
   };
 
   const approveRequest = async (request: StudentRequest) => {
@@ -298,6 +338,25 @@ export default function ClassTeacherDashboard() {
     );
   };
 
+  const totalStudents = students.length;
+
+  const navigateToAttendance = () => {
+    router.push("/Tabs/Teacherdashboard/Attendence");
+  };
+
+  const navigateToNotes = () => {
+    router.push("/Tabs/Teacherdashboard/notes");
+  };
+
+  const navigateToProfileSettings = () => {
+    router.push("/Tabs/ProfileSettings");
+  };
+
+  const filteredStudents = students.filter(student =>
+    student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    student.rollNumber.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   if (loading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
@@ -309,147 +368,192 @@ export default function ClassTeacherDashboard() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
-      >
-        {/* Header */}
-        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
-          <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-              <Ionicons name="arrow-back" size={24} color="#fff" />
-            </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.headerTitle}>Class Teacher Dashboard</Text>
-              <Text style={styles.headerSubtitle}>{user?.name}</Text>
-            </View>
-            {/* Theme Toggle Button */}
-            <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
-              <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
-
-        {/* Class Teacher Info Card */}
-        <View style={[styles.infoCard, { backgroundColor: colors.card, elevation: 3 }]}>
-          <View style={styles.infoRow}>
-            <Ionicons name="school-outline" size={22} color={colors.primary} />
-            <Text style={[styles.infoText, { color: colors.textDark }]}>Class: Semester {classTeacherInfo?.semester}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <Ionicons name="business-outline" size={22} color={colors.primary} />
-            <Text style={[styles.infoText, { color: colors.textDark }]}>Department: {classTeacherInfo?.department}</Text>
-          </View>
-          {assignedSubject && (
-            <View style={styles.infoRow}>
-              <Ionicons name="book-outline" size={22} color={colors.primary} />
-              <Text style={[styles.infoText, { color: colors.textDark }]}>Assigned Subject: {assignedSubject.name}</Text>
-            </View>
-          )}
-        </View>
-
-        {/* Quick Actions */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Quick Actions</Text>
-          <View style={styles.actionGrid}>
-            <TouchableOpacity style={styles.actionCard} onPress={() => setShowAttendanceModal(false)}>
-              <LinearGradient colors={["#4CAF50", "#45a049"]} style={styles.actionGradient}>
-                <Ionicons name="checkmark-circle" size={32} color="#fff" />
-                <Text style={styles.actionText}>Mark Attendance</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionCard} onPress={() => router.push("/Tabs/Teacherdashboard/notes")}>
-              <LinearGradient colors={["#FF9800", "#F57C00"]} style={styles.actionGradient}>
-                <Ionicons name="document-text" size={32} color="#fff" />
-                <Text style={styles.actionText}>Add Note</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.actionCard} onPress={() => setShowRequestsModal(true)}>
-              <LinearGradient colors={["#9C27B0", "#7B1FA2"]} style={styles.actionGradient}>
-                <Ionicons name="notifications" size={32} color="#fff" />
-                <Text style={styles.actionText}>Requests ({pendingRequests.length})</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Mark Attendance Section (inline) */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Mark Attendance for {assignedSubject?.name}</Text>
-          <Text style={[styles.subtitle, { color: colors.textLight }]}>{"Today's Date: {new Date().toLocaleDateString()"}</Text>
-          {students.map((student) => {
-            const selected = attendanceSelections[student.id];
-            return (
-              <View key={student.id} style={[styles.studentRow, { backgroundColor: colors.card }]}>
-                <View style={styles.studentInfo}>
-                  <Text style={[styles.studentName, { color: colors.textDark }]}>{student.name}</Text>
-                  <Text style={[styles.studentRoll, { color: colors.textLight }]}>Roll: {student.rollNumber}</Text>
-                </View>
-                <View style={styles.attendanceButtons}>
-                  <TouchableOpacity
-                    style={[styles.presentBtn, selected === "present" && styles.activeBtn]}
-                    onPress={() => markAttendance(student.id, "present")}
-                  >
-                    <Text style={[styles.btnText, { color: selected === "present" ? "#fff" : "#4CAF50" }]}>Present</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.absentBtn, selected === "absent" && styles.activeBtn]}
-                    onPress={() => markAttendance(student.id, "absent")}
-                  >
-                    <Text style={[styles.btnText, { color: selected === "absent" ? "#fff" : "#F44336" }]}>Absent</Text>
-                  </TouchableOpacity>
-                </View>
+      <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
+        <ScrollView
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Header */}
+          <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
+            <View style={styles.headerContent}>
+              <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                <Ionicons name="arrow-back" size={24} color="#fff" />
+              </TouchableOpacity>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.headerTitle}>Class Teacher Dashboard</Text>
+                <Text style={styles.headerSubtitle}>{teacherInfo?.name || user?.name || "Teacher"}</Text>
               </View>
-            );
-          })}
-          {Object.keys(attendanceSelections).length > 0 && (
-            <TouchableOpacity style={styles.submitBtn} onPress={submitAttendance} disabled={markingAttendance}>
-              <LinearGradient colors={["#4CAF50", "#45a049"]} style={styles.submitGradient}>
-                {markingAttendance ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitText}>Submit Attendance</Text>}
-              </LinearGradient>
-            </TouchableOpacity>
-          )}
-        </View>
+              <View style={styles.headerActions}>
+                <TouchableOpacity onPress={forceRefreshData} style={styles.themeToggle}>
+                  <Ionicons name="refresh-outline" size={24} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleThemeToggle} style={styles.themeToggle}>
+                  <Animated.View style={{ transform: [{ rotate: themeSpin }] }}>
+                    <Ionicons name={theme === 'dark' ? "sunny-outline" : "moon-outline"} size={24} color="#fff" />
+                  </Animated.View>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={navigateToProfileSettings} style={styles.settingsButton}>
+                  <Ionicons name="settings-outline" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          </LinearGradient>
 
-        {/* Attendance Summary Section */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Attendance Summary ({assignedSubject?.name})</Text>
-          {students.map((student) => {
-            const summary = attendanceSummary[student.id] || { present: 0, total: 0, percentage: 0 };
-            return (
-              <TouchableOpacity
-                key={student.id}
-                style={[styles.summaryRow, { backgroundColor: colors.card }]}
-                onPress={() => viewStudentAttendance(student)}
-              >
-                <View style={styles.summaryInfo}>
-                  <Text style={[styles.studentName, { color: colors.textDark }]}>{student.name}</Text>
-                  <Text style={[styles.studentRoll, { color: colors.textLight }]}>{student.rollNumber}</Text>
-                </View>
-                <View style={styles.summaryStats}>
-                  <Text style={[styles.summaryText, { color: colors.textDark }]}>{summary.present}/{summary.total}</Text>
-                  <Text style={[styles.percentage, summary.percentage >= 75 ? styles.good : styles.poor, { color: summary.percentage >= 75 ? "#4CAF50" : "#F44336" }]}>
-                    {Math.round(summary.percentage)}%
+          {/* Teacher Profile Card with Updated Department */}
+          <Animated.View style={[styles.profileCard, { backgroundColor: colors.card, elevation: 3 }]}>
+            <View style={styles.profileHeader}>
+              <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
+                <Text style={styles.avatarText}>
+                  {teacherInfo?.name?.charAt(0) || teacherInfo?.displayName?.charAt(0) || "T"}
+                </Text>
+              </View>
+              <View style={styles.profileInfo}>
+                <Text style={[styles.profileName, { color: colors.textDark }]}>
+                  {teacherInfo?.name || teacherInfo?.displayName || "Teacher Name"}
+                </Text>
+                <Text style={[styles.profileEmail, { color: colors.textLight }]}>
+                  {teacherInfo?.email || user?.email}
+                </Text>
+                
+                {/* Bio Section */}
+                <View style={styles.bioContainer}>
+                  <Ionicons name="chatbubble-outline" size={14} color={colors.primary} />
+                  <Text style={[styles.bioText, { color: colors.textDark }]}>
+                    {teacherInfo?.bio || "No bio added yet"}
                   </Text>
                 </View>
-                <Ionicons name="chevron-forward" size={20} color={colors.textLight} />
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      </ScrollView>
+                
+                <View style={styles.roleBadge}>
+                  <Ionicons name="briefcase-outline" size={12} color={colors.primary} />
+                  <Text style={[styles.roleBadgeText, { color: colors.primary }]}>
+                    Class Teacher
+                  </Text>
+                </View>
+                
+                {/* This shows the UPDATED teacher department from profile */}
+                <View style={styles.detailBadge}>
+                  <Ionicons name="business-outline" size={12} color={colors.primary} />
+                  <Text style={[styles.detailText, { color: colors.textDark, fontWeight: '500' }]}>
+                    Department: {teacherInfo?.department || "Not set"}
+                  </Text>
+                </View>
+                
+                {teacherInfo?.phone && (
+                  <View style={styles.detailBadge}>
+                    <Ionicons name="call-outline" size={12} color={colors.textLight} />
+                    <Text style={[styles.detailText, { color: colors.textLight }]}>
+                      {teacherInfo.phone}
+                    </Text>
+                  </View>
+                )}
 
+                {/* Show qualification if available */}
+                {teacherInfo?.qualification && (
+                  <View style={styles.detailBadge}>
+                    <Ionicons name="school-outline" size={12} color={colors.textLight} />
+                    <Text style={[styles.detailText, { color: colors.textLight }]}>
+                      {teacherInfo.qualification}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </Animated.View>
+
+          {/* Statistics Cards */}
+          <TouchableOpacity onPress={animateStatCard} activeOpacity={0.9}>
+            <Animated.View style={[styles.statsContainer, { transform: [{ scale: statsScaleAnim }] }]}>
+              <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+                <View style={[styles.statIconBg, { backgroundColor: "#E8F0FE" }]}>
+                  <Ionicons name="people-outline" size={24} color="#1976D2" />
+                </View>
+                <View>
+                  <Text style={[styles.statValue, { color: colors.textDark }]}>{totalStudents}</Text>
+                  <Text style={[styles.statLabel, { color: colors.textLight }]}>Total Students</Text>
+                </View>
+              </View>
+            </Animated.View>
+          </TouchableOpacity>
+
+          {/* Class Information Card - Shows the CLASS department (not teacher's personal dept) */}
+          <View style={[styles.infoCard, { backgroundColor: colors.card, elevation: 2 }]}>
+            <Text style={[styles.infoCardTitle, { color: colors.textDark }]}>Assigned Class Information</Text>
+            <View style={styles.infoRow}>
+              <Ionicons name="school-outline" size={20} color={colors.primary} />
+              <Text style={[styles.infoText, { color: colors.textDark }]}>Semester: {classTeacherInfo?.semester}</Text>
+            </View>
+            <View style={styles.infoRow}>
+              <Ionicons name="business-outline" size={20} color={colors.primary} />
+              <Text style={[styles.infoText, { color: colors.textDark }]}>Class Department: {classTeacherInfo?.department}</Text>
+            </View>
+            {assignedSubject && (
+              <View style={styles.infoRow}>
+                <Ionicons name="book-outline" size={20} color={colors.primary} />
+                <Text style={[styles.infoText, { color: colors.textDark }]}>Subject: {assignedSubject.name}</Text>
+              </View>
+            )}
+          </View>
+
+          {/* View Students Button */}
+          <View style={styles.section}>
+            <TouchableOpacity 
+              style={[styles.viewStudentsBtn]}
+              onPress={() => setShowStudentsModal(true)}
+              activeOpacity={0.8}
+            >
+              <LinearGradient 
+                colors={[colors.primary, colors.secondary]} 
+                style={styles.viewStudentsGradient}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+              >
+                <Ionicons name="people-circle-outline" size={28} color="#fff" />
+                <Text style={styles.viewStudentsText}>View All Students</Text>
+                <Ionicons name="chevron-forward-outline" size={24} color="#fff" />
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+
+          {/* Quick Actions */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Quick Actions</Text>
+            <View style={styles.actionGrid}>
+              <TouchableOpacity style={styles.actionCard} onPress={navigateToAttendance}>
+                <LinearGradient colors={["#4CAF50", "#45a049"]} style={styles.actionGradient}>
+                  <Ionicons name="checkbox-outline" size={28} color="#fff" />
+                  <Text style={styles.actionText}>Mark Attendance</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionCard} onPress={() => setShowRequestsModal(true)}>
+                <LinearGradient colors={["#9C27B0", "#7B1FA2"]} style={styles.actionGradient}>
+                  <Ionicons name="notifications-outline" size={28} color="#fff" />
+                  <Text style={styles.actionText}>Requests ({pendingRequests.length})</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.actionCard} onPress={navigateToNotes}>
+                <LinearGradient colors={["#FF9800", "#F57C00"]} style={styles.actionGradient}>
+                  <Ionicons name="document-text-outline" size={28} color="#fff" />
+                  <Text style={styles.actionText}>Add Note</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      </Animated.View>
+
+      {/* Keep your existing modals here - they remain the same */}
       {/* Student Requests Modal */}
       <Modal visible={showRequestsModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Student Requests</Text>
+            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeaderGradient}>
+              <Text style={styles.modalTitle}>Student Requests</Text>
               <TouchableOpacity onPress={() => setShowRequestsModal(false)}>
-                <Ionicons name="close" size={24} color={colors.textDark} />
+                <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
-            </View>
+            </LinearGradient>
             <FlatList
               data={pendingRequests}
               keyExtractor={(item) => item.id}
@@ -476,28 +580,79 @@ export default function ClassTeacherDashboard() {
         </View>
       </Modal>
 
-      {/* Attendance History Modal */}
-      <Modal visible={showAttendanceModal} animationType="slide" transparent={true}>
+      {/* View All Students Modal */}
+      <Modal visible={showStudentsModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Attendance History - {selectedStudent?.name}</Text>
-              <TouchableOpacity onPress={() => setShowAttendanceModal(false)}>
-                <Ionicons name="close" size={24} color={colors.textDark} />
+            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeaderGradient}>
+              <Text style={styles.modalTitle}>All Students ({totalStudents})</Text>
+              <TouchableOpacity onPress={() => setShowStudentsModal(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
+            </LinearGradient>
+            
+            <View style={[styles.searchContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+              <Ionicons name="search-outline" size={20} color={colors.textLight} />
+              <TextInput
+                style={[styles.searchInput, { color: colors.textDark }]}
+                placeholder="Search by name or roll number..."
+                placeholderTextColor={colors.textLight}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              {searchQuery !== "" && (
+                <TouchableOpacity onPress={() => setSearchQuery("")}>
+                  <Ionicons name="close-circle" size={20} color={colors.textLight} />
+                </TouchableOpacity>
+              )}
             </View>
+            
             <FlatList
-              data={attendanceHistory}
-              keyExtractor={(item) => item.id!}
-              renderItem={({ item }) => (
-                <View style={[styles.historyItem, { borderBottomColor: colors.border }]}>
-                  <Text style={[styles.historyDate, { color: colors.textDark }]}>{new Date(item.date).toLocaleDateString()}</Text>
-                  <View style={[styles.historyStatus, { backgroundColor: item.status === "present" ? "#4CAF50" : "#F44336" }]}>
-                    <Text style={styles.historyStatusText}>{item.status.toUpperCase()}</Text>
+              data={filteredStudents}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item, index }) => (
+                <View style={[styles.studentModalItem, { borderBottomColor: colors.border }]}>
+                  <View style={[styles.studentNumberContainer, { backgroundColor: colors.primary + "20" }]}>
+                    <Text style={[styles.studentNumber, { color: colors.primary }]}>{index + 1}</Text>
+                  </View>
+                  <View style={styles.studentModalInfo}>
+                    <Text style={[styles.studentModalName, { color: colors.textDark }]}>{item.name}</Text>
+                    <View style={styles.studentModalDetails}>
+                      <View style={styles.detailChip}>
+                        <Ionicons name="document-text-outline" size={12} color={colors.textLight} />
+                        <Text style={[styles.studentModalDetail, { color: colors.textLight }]}>
+                          Roll: {item.rollNumber}
+                        </Text>
+                      </View>
+                      <View style={styles.detailChip}>
+                        <Ionicons name="school-outline" size={12} color={colors.textLight} />
+                        <Text style={[styles.studentModalDetail, { color: colors.textLight }]}>
+                          Sem: {item.semester}
+                        </Text>
+                      </View>
+                    </View>
+                    {item.email && (
+                      <View style={styles.detailChip}>
+                        <Ionicons name="mail-outline" size={12} color={colors.textLight} />
+                        <Text style={[styles.studentModalEmail, { color: colors.textLight }]}>{item.email}</Text>
+                      </View>
+                    )}
+                    {item.phone && (
+                      <View style={styles.detailChip}>
+                        <Ionicons name="call-outline" size={12} color={colors.textLight} />
+                        <Text style={[styles.studentModalPhone, { color: colors.textLight }]}>{item.phone}</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
               )}
-              ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textLight }]}>No attendance records</Text>}
+              ListEmptyComponent={
+                <View style={styles.emptyContainer}>
+                  <Ionicons name="people-outline" size={64} color={colors.textLight} />
+                  <Text style={[styles.emptyText, { color: colors.textLight }]}>No students found</Text>
+                  <Text style={[styles.emptySubText, { color: colors.textLight }]}>Try adjusting your search</Text>
+                </View>
+              }
             />
           </View>
         </View>
@@ -513,42 +668,98 @@ const styles = StyleSheet.create({
   header: { padding: 20, paddingTop: 40, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
   headerContent: { flexDirection: "row", alignItems: "center", gap: 15 },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
-  themeToggle: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
+  headerActions: { flexDirection: "row", gap: 10 },
+  themeToggle: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: "rgba(255,255,255,0.2)", 
+    justifyContent: "center", 
+    alignItems: "center" 
+  },
+  settingsButton: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: "rgba(255,255,255,0.2)", 
+    justifyContent: "center", 
+    alignItems: "center" 
+  },
+  themeTooltip: {
+    position: 'absolute',
+    top: 100,
+    right: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 8,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    zIndex: 1000,
+  },
+  themeTooltipText: { fontSize: 12, fontWeight: '500' },
   headerTitle: { fontSize: 20, fontWeight: "bold", color: "#fff" },
   headerSubtitle: { fontSize: 12, color: "#fff", opacity: 0.9, marginTop: 2 },
-  infoCard: { margin: 15, padding: 15, borderRadius: 15, gap: 10 },
-  infoRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  
+  profileCard: { margin: 15, padding: 15, borderRadius: 15 },
+  profileHeader: { flexDirection: "row", alignItems: "flex-start", gap: 15 },
+  avatarContainer: { width: 60, height: 60, borderRadius: 30, justifyContent: "center", alignItems: "center" },
+  avatarText: { color: "#fff", fontSize: 24, fontWeight: "bold" },
+  profileInfo: { flex: 1 },
+  profileName: { fontSize: 20, fontWeight: "bold", marginBottom: 4 },
+  profileEmail: { fontSize: 12, marginBottom: 6 },
+  bioContainer: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    gap: 6, 
+    marginTop: 6,
+    marginBottom: 6,
+    padding: 8,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderRadius: 8,
+  },
+  bioText: { fontSize: 13, flex: 1, lineHeight: 18 },
+  roleBadge: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 4 },
+  roleBadgeText: { fontSize: 10, fontWeight: "600" },
+  detailBadge: { flexDirection: "row", alignItems: "center", marginTop: 6, gap: 6 },
+  detailText: { fontSize: 12 },
+  
+  statsContainer: { paddingHorizontal: 15, marginBottom: 15 },
+  statCard: { flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 15, gap: 10, elevation: 2 },
+  statIconBg: { width: 44, height: 44, borderRadius: 14, justifyContent: "center", alignItems: "center" },
+  statValue: { fontSize: 20, fontWeight: "bold" },
+  statLabel: { fontSize: 11, marginTop: 2 },
+  
+  infoCard: { marginHorizontal: 15, marginBottom: 15, padding: 15, borderRadius: 15 },
+  infoCardTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 10 },
+  infoRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
   infoText: { fontSize: 14, fontWeight: "500" },
+  
   section: { marginHorizontal: 15, marginBottom: 20 },
   sectionTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 10 },
-  subtitle: { fontSize: 12, marginBottom: 10 },
+  
+  viewStudentsBtn: { borderRadius: 15, overflow: "hidden", elevation: 3 },
+  viewStudentsGradient: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16 },
+  viewStudentsText: { fontSize: 18, fontWeight: "bold", color: "#fff", flex: 1, textAlign: "center" },
+  
   actionGrid: { flexDirection: "row", justifyContent: "space-between", gap: 10 },
   actionCard: { flex: 1, borderRadius: 12, overflow: "hidden" },
-  actionGradient: { padding: 15, alignItems: "center", gap: 8 },
-  actionText: { color: "#fff", fontWeight: "bold", fontSize: 14 },
-  studentRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 12, borderRadius: 10, marginBottom: 8, elevation: 1 },
-  studentInfo: { flex: 1 },
-  studentName: { fontSize: 14, fontWeight: "600" },
-  studentRoll: { fontSize: 12 },
-  attendanceButtons: { flexDirection: "row", gap: 8 },
-  presentBtn: { backgroundColor: "#e8f5e9", paddingHorizontal: 15, paddingVertical: 6, borderRadius: 20 },
-  absentBtn: { backgroundColor: "#ffebee", paddingHorizontal: 15, paddingVertical: 6, borderRadius: 20 },
-  activeBtn: { backgroundColor: "#7384bf" },
-  btnText: { fontSize: 12, fontWeight: "600" },
-  submitBtn: { marginTop: 15, borderRadius: 10, overflow: "hidden" },
-  submitGradient: { paddingVertical: 12, alignItems: "center" },
-  submitText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
-  summaryRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 12, borderRadius: 10, marginBottom: 8, elevation: 1 },
-  summaryInfo: { flex: 1 },
-  summaryStats: { flexDirection: "row", alignItems: "center", gap: 10 },
-  summaryText: { fontSize: 14 },
-  percentage: { fontSize: 14, fontWeight: "bold" },
-  good: { color: "#4CAF50" },
-  poor: { color: "#F44336" },
+  actionGradient: { padding: 12, alignItems: "center", gap: 6 },
+  actionText: { color: "#fff", fontWeight: "bold", fontSize: 12 },
+  
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalContent: { borderRadius: 20, width: "90%", maxHeight: "80%" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 15, borderBottomWidth: 1 },
-  modalTitle: { fontSize: 18, fontWeight: "bold" },
+  modalContent: { borderRadius: 20, width: "90%", maxHeight: "85%", overflow: "hidden" },
+  modalHeaderGradient: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20 },
+  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
+  
+  searchContainer: { flexDirection: "row", alignItems: "center", margin: 15, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, gap: 8 },
+  searchInput: { flex: 1, fontSize: 14, paddingVertical: 6 },
+  
   requestItem: { flexDirection: "row", justifyContent: "space-between", padding: 15, borderBottomWidth: 1 },
   requestInfo: { flex: 1 },
   requestTitle: { fontSize: 16, fontWeight: "bold" },
@@ -559,9 +770,19 @@ const styles = StyleSheet.create({
   approveText: { color: "#fff", fontWeight: "bold" },
   rejectBtn: { backgroundColor: "#F44336", paddingHorizontal: 15, paddingVertical: 6, borderRadius: 8 },
   rejectText: { color: "#fff", fontWeight: "bold" },
-  emptyText: { textAlign: "center", padding: 20 },
-  historyItem: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 12, borderBottomWidth: 1 },
-  historyDate: { fontSize: 14 },
-  historyStatus: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 },
-  historyStatusText: { color: "#fff", fontWeight: "bold", fontSize: 12 },
+  
+  studentModalItem: { flexDirection: "row", padding: 15, borderBottomWidth: 1, alignItems: "flex-start" },
+  studentNumberContainer: { width: 36, height: 36, borderRadius: 18, justifyContent: "center", alignItems: "center", marginRight: 12, marginTop: 2 },
+  studentNumber: { fontSize: 14, fontWeight: "bold" },
+  studentModalInfo: { flex: 1 },
+  studentModalName: { fontSize: 16, fontWeight: "600", marginBottom: 6 },
+  studentModalDetails: { flexDirection: "row", gap: 12, marginBottom: 4, flexWrap: "wrap" },
+  detailChip: { flexDirection: "row", alignItems: "center", gap: 4 },
+  studentModalDetail: { fontSize: 12 },
+  studentModalEmail: { fontSize: 11, marginTop: 2 },
+  studentModalPhone: { fontSize: 11, marginTop: 2 },
+  
+  emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
+  emptyText: { textAlign: "center", padding: 20, fontSize: 16, marginTop: 10 },
+  emptySubText: { fontSize: 12, marginTop: 5 },
 });

@@ -8,7 +8,6 @@ import {
     ActivityIndicator,
     Alert,
     Animated,
-
     Image,
     StyleSheet,
     Text,
@@ -16,18 +15,18 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { db } from "../../../config/firebaseConfig.native";
-import { useTheme } from "../../../context/ThemeContext"; // adjust path
-
-
+import { useTheme } from "../../../context/ThemeContext";
 
 interface Student {
   id?: string;
-  Name: string;
+  name: string;
   rollNo: string;
   phone: string;
   department: string;
   semester: string;
+  email?: string;
 }
 
 type AppRoute =
@@ -41,7 +40,7 @@ export default function StudentDashboard() {
   const { studentId } = useLocalSearchParams<{
     studentId?: string;
   }>();
-  const { colors } = useTheme(); // ← dynamic theme
+  const { colors, theme, toggleTheme } = useTheme();
 
   const [studentData, setStudentData] = useState<Student | null>(null);
   const [loading, setLoading] = useState(true);
@@ -62,9 +61,15 @@ export default function StudentDashboard() {
         const docSnap = await getDoc(docRef);
 
         if (docSnap.exists()) {
+          const data = docSnap.data();
           setStudentData({
             id: docSnap.id,
-            ...(docSnap.data() as Student),
+            name: data.name || data.Name || "",
+            rollNo: data.rollNo || data.rollNumber || "",
+            phone: data.phone || "",
+            department: data.department || "",
+            semester: data.semester || "",
+            email: data.email || "",
           });
         } else {
           Alert.alert("Error", "Student not found!");
@@ -91,13 +96,17 @@ export default function StudentDashboard() {
     };
 
     fetchStudentData();
- }, [studentId, fadeAnim, slideAnim]);
+  }, [studentId, fadeAnim, slideAnim]);
 
   const goTo = (path: AppRoute) => {
     router.push({
       pathname: path,
       params: { studentId },
     });
+  };
+
+  const navigateToProfile = () => {
+    router.push("/Tabs/ProfileSettings");
   };
 
   if (loading) {
@@ -119,6 +128,22 @@ export default function StudentDashboard() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={["top", "bottom"]}>
+      {/* Header with Settings Button */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color={colors.primary} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.textDark }]}>Student Dashboard</Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
+            <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={22} color={colors.primary} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={navigateToProfile} style={styles.iconButton}>
+            <Ionicons name="settings-outline" size={22} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
       <Animated.ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 40 }}
@@ -133,11 +158,14 @@ export default function StudentDashboard() {
             source={require("../../../assets/images/studentavatar.jpg")}
             style={styles.image}
           />
-          <Text style={[styles.name, { color: colors.textDark }]}>{studentData.Name}</Text>
+          <Text style={[styles.name, { color: colors.textDark }]}>{studentData.name}</Text>
           <Text style={[styles.info, { color: colors.textLight }]}>🎓 {studentData.department}</Text>
           <Text style={[styles.info, { color: colors.textLight }]}>📚 Semester: {studentData.semester}</Text>
           <Text style={[styles.info, { color: colors.textLight }]}>📞 {studentData.phone}</Text>
           <Text style={[styles.info, { color: colors.textLight }]}>🆔 {studentData.rollNo}</Text>
+          {studentData.email && (
+            <Text style={[styles.info, { color: colors.textLight }]}>📧 {studentData.email}</Text>
+          )}
         </View>
 
         {/* GRID BUTTONS */}
@@ -171,7 +199,7 @@ export default function StudentDashboard() {
             onPress={() => goTo("/Tabs/Studentdashboard/dashboards/Helpsupport")}
           >
             <Text style={styles.icon}>📞</Text>
-            <Text style={styles.btnText}>Help</Text>
+            <Text style={styles.btnText}>Help & Support</Text>
           </TouchableOpacity>
         </View>
 
@@ -199,6 +227,37 @@ const styles = StyleSheet.create({
   },
   loading: {
     marginTop: 10,
+  },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 15,
+    paddingHorizontal: 5,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  headerRight: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(0,0,0,0.05)",
+    justifyContent: "center",
+    alignItems: "center",
   },
   card: {
     padding: 20,
@@ -245,6 +304,7 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     alignItems: "center",
     marginTop: 10,
+    marginBottom: 20,
   },
   logoutText: {
     color: "#fff",

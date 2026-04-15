@@ -52,8 +52,9 @@ export default function Teacherdashboard() {
 
           setTeacherData({
             name: data.name,
-            department: data.Department,
+            department: data.department,
             phone: data.phone,
+            email: data.email,
             subjects,
           });
         } else {
@@ -75,6 +76,10 @@ export default function Teacherdashboard() {
   }, [teacherId]);
 
   const handleLogout = () => router.replace("/Login/teacherlogin");
+
+  const navigateToProfile = () => {
+    router.push("/Tabs/ProfileSettings");
+  };
 
   if (loading) {
     return (
@@ -103,10 +108,14 @@ export default function Teacherdashboard() {
               {teacherData?.department} Department
             </Text>
           </View>
-          {/* Theme Toggle Button */}
-          <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
-            <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
+              <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={22} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={navigateToProfile} style={styles.iconButton}>
+              <Ionicons name="settings-outline" size={22} color="#fff" />
+            </TouchableOpacity>
+          </View>
         </View>
       </LinearGradient>
 
@@ -209,7 +218,11 @@ const styles = StyleSheet.create({
   headerTitle: { color: "#fff", fontSize: 24, fontWeight: "bold" },
   headerName: { color: "#E0E0E0", fontSize: 18, marginTop: 2 },
   headerDept: { color: "#D3E0FF", fontSize: 14, marginTop: 2 },
-  themeToggle: {
+  headerButtons: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  iconButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -289,6 +302,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
     marginTop: 20,
+    marginBottom: 30,
     boxShadow: "0px 4px 5px rgba(0,0,0,0.25)",
     elevation: 6,
   },

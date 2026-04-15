@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { collection, deleteDoc, doc, getDocs, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDocs, setDoc, updateDoc } from "firebase/firestore";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -40,6 +40,162 @@ interface ClassTeacherAssignment {
   department: string;
 }
 
+// Class Teacher Assignment Modal Component
+const ClassTeacherAssignmentModal = ({ 
+  visible, 
+  onClose, 
+  teachers, 
+  classTeachers, 
+  onAssign 
+}: { 
+  visible: boolean; 
+  onClose: () => void; 
+  teachers: Teacher[]; 
+  classTeachers: ClassTeacherAssignment[];
+  onAssign: () => void;
+}) => {
+  const { colors } = useTheme();
+  const [selectedSemester, setSelectedSemester] = useState("");
+  const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
+  const [loading, setLoading] = useState(false);
+  
+  const semesters = ["1", "2", "3", "4", "5", "6", "7", "8"];
+  
+  const handleAssign = async () => {
+    if (!selectedSemester || !selectedTeacher) {
+      Alert.alert("Error", "Please select both semester and teacher");
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      const assignmentRef = doc(db, "classTeachers", `semester_${selectedSemester}`);
+      await setDoc(assignmentRef, {
+        semester: selectedSemester,
+        teacherId: selectedTeacher.id,
+        teacherName: selectedTeacher.name,
+        department: selectedTeacher.department,
+        assignedBy: "hod",
+        assignedAt: new Date().toISOString(),
+      });
+      
+      Alert.alert("Success", `${selectedTeacher.name} assigned as Class Teacher for Semester ${selectedSemester}`);
+      onAssign();
+      onClose();
+      setSelectedSemester("");
+      setSelectedTeacher(null);
+    } catch (error) {
+      console.error("Assignment error:", error);
+      Alert.alert("Error", "Failed to assign class teacher");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  return (
+    <Modal visible={visible} animationType="slide" transparent={true}>
+      <View style={styles.modalOverlay}>
+        <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+          <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Assign Class Teacher</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color="white" />
+            </TouchableOpacity>
+          </LinearGradient>
+          
+          <View style={styles.modalBody}>
+            <Text style={[styles.modalLabel, { color: colors.textDark }]}>Select Semester</Text>
+            <View style={styles.semesterGrid}>
+              {semesters.map((sem) => {
+                const isAssigned = classTeachers.some(ct => ct.semester === sem);
+                return (
+                  <TouchableOpacity
+                    key={sem}
+                    style={[
+                      styles.semesterButton,
+                      { backgroundColor: colors.background, borderColor: colors.border },
+                      selectedSemester === sem && styles.selectedSemesterButton,
+                      isAssigned && styles.assignedSemesterButton
+                    ]}
+                    onPress={() => !isAssigned && setSelectedSemester(sem)}
+                    disabled={isAssigned}
+                  >
+                    <Text style={[
+                      styles.semesterButtonText,
+                      { color: colors.textDark },
+                      selectedSemester === sem && styles.selectedSemesterText,
+                      isAssigned && styles.assignedSemesterText
+                    ]}>
+                      Sem {sem}
+                    </Text>
+                    {isAssigned && (
+                      <Ionicons name="checkmark-circle" size={16} color="#4CAF50" />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            
+            {selectedSemester && (
+              <>
+                <Text style={[styles.modalLabel, { color: colors.textDark, marginTop: 15 }]}>Select Teacher</Text>
+                <ScrollView style={styles.teacherList}>
+                  {teachers
+                    .filter(t => t.role !== "hod")
+                    .map((teacher) => {
+                      const isAlreadyAssigned = classTeachers.some(ct => ct.teacherId === teacher.id);
+                      return (
+                        <TouchableOpacity
+                          key={teacher.id}
+                          style={[
+                            styles.teacherSelectButton,
+                            { backgroundColor: colors.background, borderColor: colors.border },
+                            selectedTeacher?.id === teacher.id && styles.selectedTeacherButton,
+                            isAlreadyAssigned && styles.disabledTeacherButton
+                          ]}
+                          onPress={() => !isAlreadyAssigned && setSelectedTeacher(teacher)}
+                          disabled={isAlreadyAssigned}
+                        >
+                          <View>
+                            <Text style={[styles.teacherName, { color: colors.textDark }]}>{teacher.name}</Text>
+                            <Text style={[styles.teacherDept, { color: colors.textLight }]}>{teacher.department}</Text>
+                          </View>
+                          {isAlreadyAssigned && (
+                            <Text style={styles.assignedText}>Already Assigned</Text>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+                </ScrollView>
+              </>
+            )}
+            
+            <TouchableOpacity
+              style={styles.assignButton}
+              onPress={handleAssign}
+              disabled={loading || !selectedSemester || !selectedTeacher}
+            >
+              <LinearGradient
+                colors={['#4CAF50', '#45a049']}
+                style={styles.assignGradient}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-done-circle" size={24} color="white" />
+                    <Text style={styles.assignButtonText}>Assign Class Teacher</Text>
+                  </>
+                )}
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
 const ManageTeachers = () => {
   const router = useRouter();
   const { colors, theme, toggleTheme } = useTheme();
@@ -60,6 +216,7 @@ const ManageTeachers = () => {
   const [viewTeacherModal, setViewTeacherModal] = useState(false);
   const [viewingTeacher, setViewingTeacher] = useState<Teacher | null>(null);
   const [classTeachers, setClassTeachers] = useState<ClassTeacherAssignment[]>([]);
+  const [showClassTeacherModal, setShowClassTeacherModal] = useState(false);
   
   // Departments for filter
   const [departments, setDepartments] = useState<string[]>(["All"]);
@@ -85,7 +242,6 @@ const ManageTeachers = () => {
       setTeachers(teachersList);
       applyFilters(teachersList, searchQuery, selectedDepartment, selectedRole);
       
-      // Extract unique departments for filter
       const uniqueDepts = ["All", ...new Set(teachersList.map(t => t.department).filter(Boolean))];
       setDepartments(uniqueDepts);
     } catch (error) {
@@ -165,26 +321,6 @@ const ManageTeachers = () => {
         updatedAt: new Date().toISOString(),
       });
 
-      if (newRole === "class_teacher") {
-        const existingAssignment = classTeachers.find(ct => ct.teacherId === selectedTeacher.id);
-        if (existingAssignment) {
-          Alert.alert(
-            "Already Assigned",
-            `${selectedTeacher.name} is already assigned as Class Teacher for Semester ${existingAssignment.semester}. Do you want to reassign?`,
-            [
-              { text: "Cancel", style: "cancel" },
-              {
-                text: "Reassign",
-                onPress: () => {
-                  setRoleModalVisible(false);
-                  Alert.alert("Reassign Class Teacher", "Please use the Class Teachers section to reassign");
-                }
-              }
-            ]
-          );
-        }
-      }
-
       Alert.alert("Success", `${selectedTeacher.name} has been assigned as ${newRole.replace("_", " ").toUpperCase()}`);
       setRoleModalVisible(false);
       setSelectedTeacher(null);
@@ -199,36 +335,6 @@ const ManageTeachers = () => {
   const handleDeleteTeacher = async () => {
     if (!teacherToDelete) return;
 
-    try {
-      const isClassTeacher = classTeachers.some(ct => ct.teacherId === teacherToDelete.id);
-      
-      if (isClassTeacher) {
-        Alert.alert(
-          "Warning",
-          `${teacherToDelete.name} is currently assigned as a Class Teacher. Deleting will remove all assignments. Continue?`,
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Delete",
-              style: "destructive",
-              onPress: async () => {
-                await performDelete();
-              }
-            }
-          ]
-        );
-      } else {
-        await performDelete();
-      }
-    } catch (error) {
-      console.error("Delete error:", error);
-      Alert.alert("Error", "Failed to delete teacher");
-    }
-  };
-
-  const performDelete = async () => {
-    if (!teacherToDelete) return;
-    
     try {
       await deleteDoc(doc(db, "teachers", teacherToDelete.id));
       
@@ -391,7 +497,6 @@ const ManageTeachers = () => {
             <Text style={styles.headerTitle}>👥 Manage Teachers</Text>
             <Text style={styles.headerSubtitle}>View, assign roles, and manage teachers</Text>
           </View>
-          {/* Theme Toggle Button */}
           <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
             <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
           </TouchableOpacity>
@@ -404,6 +509,17 @@ const ManageTeachers = () => {
           <RefreshControl refreshing={refreshing} onRefresh={fetchTeachers} colors={[colors.primary]} />
         }
       >
+        {/* Action Buttons */}
+        <View style={styles.actionButtonsRow}>
+          <TouchableOpacity 
+            style={[styles.actionButton, { backgroundColor: colors.primary }]}
+            onPress={() => setShowClassTeacherModal(true)}
+          >
+            <Ionicons name="people-circle-outline" size={20} color="#fff" />
+            <Text style={styles.actionButtonText}>Assign Class Teacher</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Statistics Cards */}
         <View style={styles.statsGrid}>
           <View style={[styles.statCard, { backgroundColor: colors.card }]}>
@@ -724,6 +840,18 @@ const ManageTeachers = () => {
           </View>
         </View>
       </Modal>
+
+      {/* Class Teacher Assignment Modal */}
+      <ClassTeacherAssignmentModal
+        visible={showClassTeacherModal}
+        onClose={() => setShowClassTeacherModal(false)}
+        teachers={teachers}
+        classTeachers={classTeachers}
+        onAssign={() => {
+          fetchTeachers();
+          fetchClassTeachers();
+        }}
+      />
     </SafeAreaView>
   );
 };
@@ -740,6 +868,9 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: "bold", color: "#fff" },
   headerSubtitle: { fontSize: 12, color: "#fff", opacity: 0.9, marginTop: 5 },
   content: { flex: 1, padding: 15 },
+  actionButtonsRow: { flexDirection: "row", marginBottom: 15, gap: 10 },
+  actionButton: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 12, borderRadius: 12, gap: 8 },
+  actionButtonText: { color: "#fff", fontSize: 14, fontWeight: "bold" },
   statsGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginBottom: 20, gap: 8 },
   statCard: { flex: 1, minWidth: "30%", borderRadius: 12, padding: 12, alignItems: "center", elevation: 2, boxShadow: "0px 1px 2px rgba(0,0,0,0.05)" },
   statValue: { fontSize: 20, fontWeight: "bold" },
@@ -815,6 +946,20 @@ const styles = StyleSheet.create({
   cancelButtonText: { fontWeight: "600" },
   deleteConfirmButton: { backgroundColor: "#F44336" },
   deleteConfirmText: { color: "#fff", fontWeight: "600" },
+  // Class Teacher Assignment Modal Styles
+  semesterGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 10 },
+  semesterButton: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 10, borderWidth: 1, flexDirection: "row", alignItems: "center", gap: 5 },
+  selectedSemesterButton: { backgroundColor: "#7384bf", borderColor: "#7384bf" },
+  assignedSemesterButton: { opacity: 0.5, backgroundColor: "#E8F5E9" },
+  semesterButtonText: { fontSize: 14 },
+  selectedSemesterText: { color: "#fff", fontWeight: "bold" },
+  assignedSemesterText: { color: "#4CAF50" },
+  teacherList: { maxHeight: 200, marginVertical: 10 },
+  teacherSelectButton: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 12, borderRadius: 10, borderWidth: 1, marginBottom: 8 },
+  selectedTeacherButton: { backgroundColor: "#7384bf", borderColor: "#7384bf" },
+  disabledTeacherButton: { opacity: 0.5 },
+  teacherDept: { fontSize: 12, marginTop: 2 },
+  assignedText: { fontSize: 12, color: "#4CAF50", fontWeight: "bold" },
 });
 
 export default ManageTeachers;

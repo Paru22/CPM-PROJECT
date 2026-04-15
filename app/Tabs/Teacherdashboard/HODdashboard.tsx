@@ -112,7 +112,7 @@ export default function HODDashboard() {
   const [noteTitle, setNoteTitle] = useState("");
   const [noteContent, setNoteContent] = useState("");
 
-  const semesters = ["1th", "2th", "3th", "4th", "5th", "6th"];
+  const semesters = ["1", "2", "3", "4", "5", "6"];
   const roles = ["teacher", "class_teacher", "exam_coordinator", "lab_incharge"];
 
   // Pre-create animation values for menu items
@@ -360,6 +360,10 @@ export default function HODDashboard() {
     router.push("/Tabs/Teacherdashboard/Attendence");
   };
 
+  const navigateToProfile = () => {
+    router.push("/Tabs/ProfileSettings");
+  };
+
   const menuItems = [
     {
       id: "1",
@@ -436,9 +440,14 @@ export default function HODDashboard() {
           {/* HOD Profile Header */}
           <LinearGradient colors={[colors.primary, colors.secondary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.profileHeader}>
             <View style={styles.profileCard}>
-              <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
-                <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
-              </TouchableOpacity>
+              <View style={styles.headerButtons}>
+                <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
+                  <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={22} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity onPress={navigateToProfile} style={styles.iconButton}>
+                  <Ionicons name="settings-outline" size={22} color="#fff" />
+                </TouchableOpacity>
+              </View>
               <View style={styles.profileImageWrapper}>
                 <View style={styles.profileImageGlow} />
                 <Image source={require("../../../assets/images/hod.png")} style={styles.profileImage} defaultSource={require("../../../assets/images/hod.png")} />
@@ -650,7 +659,7 @@ export default function HODDashboard() {
             </View>
           </View>
         </View>
-    </Modal>
+      </Modal>
 
       {/* Delete Confirmation Modal */}
       <Modal transparent visible={showDeleteConfirm} onRequestClose={() => setShowDeleteConfirm(false)}>
@@ -683,7 +692,22 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 40,
   },
   profileCard: { alignItems: "center", justifyContent: "center", paddingHorizontal: 20, position: "relative" },
-  themeToggle: { position: "absolute", top: 10, right: 20, zIndex: 10, backgroundColor: "rgba(255,255,255,0.2)", borderRadius: 20, padding: 8 },
+  headerButtons: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    flexDirection: "row",
+    gap: 12,
+    zIndex: 10,
+  },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   profileImageWrapper: { position: "relative", marginBottom: 16 },
   profileImageGlow: { position: "absolute", width: 110, height: 110, borderRadius: 55, backgroundColor: "rgba(255,255,255,0.3)", top: -5, left: -5 },
   profileImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 4, borderColor: "#fff", backgroundColor: "#fff" },
