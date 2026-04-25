@@ -6,7 +6,10 @@ import {
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import React, { createContext, ReactNode, useCallback, useContext, useEffect, useState } from "react";
-import { auth, db } from "../config/firebaseConfig.native"; // ✅ import auth from config
+import { auth, db } from "../config/firebaseConfig.native";
+
+// ✅ Re-export auth so other files can import it from here
+export { auth };
 
 export interface AppUser {
   uid: string;

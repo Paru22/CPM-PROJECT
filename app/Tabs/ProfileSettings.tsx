@@ -2,10 +2,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
+import * as ImagePicker from "expo-image-picker";
+import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
+    Dimensions,
+    Image,
     ScrollView,
     StyleSheet,
     Text,
@@ -18,6 +22,8 @@ import { db } from "../../config/firebaseConfig.native";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 
+const { width } = Dimensions.get("window");
+
 export default function ProfileSettings() {
   const router = useRouter();
   const { user } = useAuth();
@@ -25,10 +31,12 @@ export default function ProfileSettings() {
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [userData, setUserData] = useState<any>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [, setUserData] = useState<any>(null); // Fixed: removed unused variable warning
   const [userRole, setUserRole] = useState<string>("");
   const [editMode, setEditMode] = useState(false);
   const [collectionName, setCollectionName] = useState<string>("");
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   
   // Common fields for all users
   const [name, setName] = useState("");
@@ -37,7 +45,6 @@ export default function ProfileSettings() {
   const [address, setAddress] = useState("");
   const [bio, setBio] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
-  const [bloodGroup, setBloodGroup] = useState("");
   const [emergencyContact, setEmergencyContact] = useState("");
   
   // Teacher specific fields
@@ -51,6 +58,8 @@ export default function ProfileSettings() {
   const [semester, setSemester] = useState("");
   const [parentPhone, setParentPhone] = useState("");
   const [admissionYear, setAdmissionYear] = useState("");
+
+  const storage = getStorage();
 
   // Fetch user profile data
   const fetchUserProfile = useCallback(async () => {
@@ -80,8 +89,8 @@ export default function ProfileSettings() {
         setAddress(data.address || "");
         setBio(data.bio || "");
         setDateOfBirth(data.dateOfBirth || "");
-        setBloodGroup(data.bloodGroup || "");
         setEmergencyContact(data.emergencyContact || "");
+        setProfileImage(data.profileImage || null);
         
         // Teacher specific fields
         setDepartment(data.department || "");
@@ -111,8 +120,8 @@ export default function ProfileSettings() {
           setAddress(data.address || "");
           setBio(data.bio || "");
           setDateOfBirth(data.dateOfBirth || "");
-          setBloodGroup(data.bloodGroup || "");
           setEmergencyContact(data.emergencyContact || "");
+          setProfileImage(data.profileImage || null);
           
           // Student specific fields
           setRollNumber(data.rollNumber || data.rollNo || "");
@@ -144,6 +153,47 @@ export default function ProfileSettings() {
     fetchUserProfile();
   }, [fetchUserProfile]);
 
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert("Permission Needed", "Please grant camera roll permissions to upload a photo.");
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.5,
+    });
+
+    if (!result.canceled && result.assets[0].uri) {
+      uploadProfileImage(result.assets[0].uri);
+    }
+  };
+
+  const uploadProfileImage = async (uri: string) => {
+    setUploadingPhoto(true);
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const storageRef = ref(storage, `profileImages/${user?.uid}`);
+      await uploadBytes(storageRef, blob);
+      const downloadURL = await getDownloadURL(storageRef);
+      
+      // Update Firestore with image URL
+      const userRef = doc(db, collectionName, user!.uid);
+      await updateDoc(userRef, { profileImage: downloadURL });
+      setProfileImage(downloadURL);
+      Alert.alert("Success", "Profile photo updated successfully!");
+    } catch (error) {
+      console.error("Upload error:", error);
+      Alert.alert("Error", "Failed to upload profile photo");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!name.trim()) {
       Alert.alert("Error", "Name is required");
@@ -160,7 +210,6 @@ export default function ProfileSettings() {
         address: address.trim(),
         bio: bio.trim(),
         dateOfBirth: dateOfBirth.trim(),
-        bloodGroup: bloodGroup.trim(),
         emergencyContact: emergencyContact.trim(),
         updatedAt: new Date().toISOString(),
       };
@@ -170,6 +219,7 @@ export default function ProfileSettings() {
         updateData.semester = semester.trim();
         updateData.parentPhone = parentPhone.trim();
         updateData.admissionYear = admissionYear.trim();
+        updateData.department = department.trim();
       } else {
         updateData.department = department.trim();
         updateData.qualification = qualification.trim();
@@ -233,11 +283,25 @@ export default function ProfileSettings() {
       </LinearGradient>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Profile Header */}
+        {/* Profile Header with Photo Upload */}
         <View style={styles.profileHeader}>
-          <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
-            <Text style={styles.avatarText}>{name.charAt(0) || "U"}</Text>
-          </View>
+          <TouchableOpacity onPress={editMode ? pickImage : undefined} disabled={!editMode} activeOpacity={0.7}>
+            <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
+              {profileImage ? (
+                <Image source={{ uri: profileImage }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>{name.charAt(0) || "U"}</Text>
+              )}
+              {editMode && (
+                <View style={styles.cameraIcon}>
+                  <Ionicons name="camera" size={16} color="#fff" />
+                </View>
+              )}
+            </View>
+          </TouchableOpacity>
+          {uploadingPhoto && (
+            <ActivityIndicator style={styles.uploadingIndicator} color={colors.primary} />
+          )}
           <Text style={[styles.profileName, { color: colors.textDark }]}>{name || "Not set"}</Text>
           <View style={[styles.roleBadge, { backgroundColor: colors.primary + "20" }]}>
             <Ionicons name={getRoleIcon()} size={14} color={colors.primary} />
@@ -333,27 +397,16 @@ export default function ProfileSettings() {
                   />
                 </View>
                 <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
-                  <Text style={[styles.label, { color: colors.textDark }]}>Blood Group</Text>
+                  <Text style={[styles.label, { color: colors.textDark }]}>Emergency Contact</Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                    value={bloodGroup}
-                    onChangeText={setBloodGroup}
-                    placeholder="A+, B+, O+"
+                    value={emergencyContact}
+                    onChangeText={setEmergencyContact}
+                    placeholder="Emergency number"
                     placeholderTextColor={colors.textLight}
+                    keyboardType="phone-pad"
                   />
                 </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.textDark }]}>Emergency Contact</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                  value={emergencyContact}
-                  onChangeText={setEmergencyContact}
-                  placeholder="Emergency contact number"
-                  placeholderTextColor={colors.textLight}
-                  keyboardType="phone-pad"
-                />
               </View>
 
               {/* Teacher Specific Fields */}
@@ -383,27 +436,28 @@ export default function ProfileSettings() {
                     />
                   </View>
 
-                  <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Experience (Years)</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={experience}
-                      onChangeText={setExperience}
-                      placeholder="e.g., 5 years"
-                      placeholderTextColor={colors.textLight}
-                      keyboardType="numeric"
-                    />
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Specialization</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={specialization}
-                      onChangeText={setSpecialization}
-                      placeholder="e.g., Data Science, AI"
-                      placeholderTextColor={colors.textLight}
-                    />
+                  <View style={styles.row}>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={[styles.label, { color: colors.textDark }]}>Experience (Years)</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                        value={experience}
+                        onChangeText={setExperience}
+                        placeholder="Years"
+                        placeholderTextColor={colors.textLight}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
+                      <Text style={[styles.label, { color: colors.textDark }]}>Specialization</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                        value={specialization}
+                        onChangeText={setSpecialization}
+                        placeholder="e.g., AI"
+                        placeholderTextColor={colors.textLight}
+                      />
+                    </View>
                   </View>
                 </>
               )}
@@ -448,28 +502,29 @@ export default function ProfileSettings() {
                     />
                   </View>
 
-                  <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>{"Parent's Phone Number"}</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={parentPhone}
-                      onChangeText={setParentPhone}
-                      placeholder="Parent's contact number"
-                      placeholderTextColor={colors.textLight}
-                      keyboardType="phone-pad"
-                    />
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Admission Year</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={admissionYear}
-                      onChangeText={setAdmissionYear}
-                      placeholder="e.g., 2024"
-                      placeholderTextColor={colors.textLight}
-                      keyboardType="numeric"
-                    />
+                  <View style={styles.row}>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={[styles.label, { color: colors.textDark }]}>{"Parent's Phone"}</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                        value={parentPhone}
+                        onChangeText={setParentPhone}
+                        placeholder="Parent's contact"
+                        placeholderTextColor={colors.textLight}
+                        keyboardType="phone-pad"
+                      />
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
+                      <Text style={[styles.label, { color: colors.textDark }]}>Admission Year</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                        value={admissionYear}
+                        onChangeText={setAdmissionYear}
+                        placeholder="e.g., 2024"
+                        placeholderTextColor={colors.textLight}
+                        keyboardType="numeric"
+                      />
+                    </View>
                   </View>
                 </>
               )}
@@ -518,7 +573,7 @@ export default function ProfileSettings() {
                 </View>
               )}
 
-              {(dateOfBirth || bloodGroup || emergencyContact) && (
+              {(dateOfBirth || emergencyContact) && (
                 <>
                   <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Personal Details</Text>
                   
@@ -526,13 +581,6 @@ export default function ProfileSettings() {
                     <View style={styles.infoSection}>
                       <Text style={[styles.infoLabel, { color: colors.textLight }]}>Date of Birth</Text>
                       <Text style={[styles.infoValue, { color: colors.textDark }]}>{dateOfBirth}</Text>
-                    </View>
-                  )}
-                  
-                  {bloodGroup && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Blood Group</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{bloodGroup}</Text>
                     </View>
                   )}
                   
@@ -642,8 +690,31 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 20, fontWeight: "bold", color: "#fff" },
   
   profileHeader: { alignItems: "center", paddingVertical: 30 },
-  avatarContainer: { width: 100, height: 100, borderRadius: 50, justifyContent: "center", alignItems: "center", marginBottom: 15 },
+  avatarContainer: { 
+    width: 100, 
+    height: 100, 
+    borderRadius: 50, 
+    justifyContent: "center", 
+    alignItems: "center", 
+    marginBottom: 15,
+    position: "relative",
+  },
+  avatarImage: { width: 100, height: 100, borderRadius: 50 },
   avatarText: { color: "#fff", fontSize: 40, fontWeight: "bold" },
+  cameraIcon: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    backgroundColor: "#4CAF50",
+    borderRadius: 15,
+    width: 30,
+    height: 30,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  uploadingIndicator: { position: "absolute", bottom: 20, right: width / 2 - 50 },
   profileName: { fontSize: 24, fontWeight: "bold", marginBottom: 8 },
   roleBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 6 },
   roleText: { fontSize: 12, fontWeight: "600" },

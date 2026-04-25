@@ -11,18 +11,20 @@ import {
   Platform,
   ScrollView,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "../../context/AuthContext";
+import { collection, query, where, getDocs } from "firebase/firestore";
 import { useRouter } from "expo-router";
 import { useTheme } from "../../context/ThemeContext";
+import { auth, db } from "../../config/firebaseConfig.native";
 
 const ForgotPassword = () => {
   const router = useRouter();
   const { colors } = useTheme();
   const [email, setEmail] = useState("");
+  const [userType, setUserType] = useState<"student" | "teacher">("student");
   const [loading, setLoading] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
 
@@ -40,11 +42,23 @@ const ForgotPassword = () => {
 
     setLoading(true);
     try {
+      // First verify if email exists in the selected user type collection
+      const collectionName = userType === "student" ? "students" : "teachers";
+      const q = query(collection(db, collectionName), where("email", "==", email));
+      const querySnapshot = await getDocs(q);
+
+      if (querySnapshot.empty) {
+        Alert.alert("Error", `No ${userType} account found with this email address.`);
+        setLoading(false);
+        return;
+      }
+
+      // Send password reset email using Firebase Auth
       await sendPasswordResetEmail(auth, email);
       setEmailSent(true);
       Alert.alert(
         "Password Reset Email Sent",
-        `We've sent a password reset link to ${email}. Please check your inbox and follow the instructions to reset your password.`,
+        `We've sent a password reset link to ${email}.\n\nPlease check your inbox and follow the instructions to reset your password.`,
         [{ text: "OK", onPress: () => router.back() }]
       );
     } catch (error: any) {
@@ -99,6 +113,52 @@ const ForgotPassword = () => {
               elevation: 3,
             }
           ]}>
+            {/* User Type Selection */}
+            <Text style={[styles.label, { color: colors.textDark }]}>I am a</Text>
+            <View style={styles.userTypeContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.userTypeButton,
+                  userType === "student" && { backgroundColor: colors.primary },
+                  { borderColor: colors.primary }
+                ]}
+                onPress={() => setUserType("student")}
+              >
+                <Ionicons 
+                  name="school-outline" 
+                  size={20} 
+                  color={userType === "student" ? "#fff" : colors.primary} 
+                />
+                <Text style={[
+                  styles.userTypeText,
+                  { color: userType === "student" ? "#fff" : colors.primary }
+                ]}>
+                  Student
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.userTypeButton,
+                  userType === "teacher" && { backgroundColor: colors.primary },
+                  { borderColor: colors.primary }
+                ]}
+                onPress={() => setUserType("teacher")}
+              >
+                <Ionicons 
+                  name="person-outline" 
+                  size={20} 
+                  color={userType === "teacher" ? "#fff" : colors.primary} 
+                />
+                <Text style={[
+                  styles.userTypeText,
+                  { color: userType === "teacher" ? "#fff" : colors.primary }
+                ]}>
+                  Teacher
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <Text style={[styles.label, { color: colors.textDark }]}>Email Address</Text>
             <View style={[
               styles.inputContainer,
@@ -126,8 +186,7 @@ const ForgotPassword = () => {
             </View>
 
             <Text style={[styles.helpText, { color: colors.textLight }]}>
-              {"We'll send a password reset link to this email address. The link will expire in 1 hour."}
-            </Text>
+             {" We'll send a password reset link to this email address. The link will expire in 1 hour."}           </Text>
 
             <TouchableOpacity
               style={[styles.resetButton, (loading || emailSent) && styles.disabledButton]}
@@ -212,6 +271,25 @@ const styles = StyleSheet.create({
   formContainer: {
     borderRadius: 20,
     padding: 20,
+  },
+  userTypeContainer: {
+    flexDirection: "row",
+    gap: 15,
+    marginBottom: 20,
+  },
+  userTypeButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  userTypeText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   label: {
     fontSize: 16,

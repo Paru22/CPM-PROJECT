@@ -25,11 +25,15 @@ import {
     TextInput,
     TouchableOpacity,
     View,
+    LogBox,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../../config/firebaseConfig.native";
 import { useAuth } from "../../../context/AuthContext";
 import { useTheme } from "../../../context/ThemeContext";
+
+// Ignore specific warnings
+LogBox.ignoreLogs(['@firebase/firestore']);
 
 interface Subject {
   id: string;
@@ -73,13 +77,13 @@ export default function ClassTeacherDashboard() {
   const [showRequestsModal, setShowRequestsModal] = useState(false);
   const [showStudentsModal, setShowStudentsModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debugInfo, setDebugInfo] = useState<string>("");
 
   // Animation values
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const themeRotateAnim = useRef(new Animated.Value(0)).current;
   const statsScaleAnim = useRef(new Animated.Value(1)).current;
-  const [showThemeTooltip, setShowThemeTooltip] = useState(false);
 
   useEffect(() => {
     Animated.parallel([
@@ -95,14 +99,7 @@ export default function ClassTeacherDashboard() {
         useNativeDriver: true,
       }),
     ]).start();
-
-    const timer = setTimeout(() => {
-      setShowThemeTooltip(true);
-      setTimeout(() => setShowThemeTooltip(false), 3000);
-    }, 1000);
-
-    return () => clearTimeout(timer);
-  }, []);
+  }, [fadeAnim, scaleAnim]);
 
   const handleThemeToggle = () => {
     Animated.sequence([
@@ -141,6 +138,27 @@ export default function ClassTeacherDashboard() {
     ]).start();
   };
 
+  // Navigation functions - FIXED PATHS
+  const navigateToAttendance = () => {
+    console.log("Navigating to Attendance...");
+    router.push("/Tabs/Teacherdashboard/Attendence");
+  };
+
+  const navigateToNotes = () => {
+    console.log("Navigating to Notes...");
+    router.push("/Tabs/Teacherdashboard/notes");
+  };
+
+  const navigateToProfileSettings = () => {
+    console.log("Navigating to Profile Settings...");
+    router.push("/Tabs/ProfileSettings");
+  };
+
+  const navigateToStudentRequests = () => {
+    console.log("Navigating to Student Requests...");
+    router.push("/Tabs/Teacherdashboard/ClassTeacherNotifications");
+  };
+
   // Force refresh function
   const forceRefreshData = async () => {
     console.log("Force refreshing data...");
@@ -150,7 +168,7 @@ export default function ClassTeacherDashboard() {
     setRefreshing(false);
   };
 
-  // Direct fetch function
+  // Direct fetch function for teacher data
   const fetchTeacherDataDirect = async () => {
     if (!user?.uid) return;
 
@@ -171,6 +189,160 @@ export default function ClassTeacherDashboard() {
     }
   };
 
+  // Enhanced fetch students function with multiple strategies
+  const fetchStudents = async (semester: string, department: string) => {
+    try {
+      console.log(`========================================`);
+      console.log(`🔍 FETCHING STUDENTS`);
+      console.log(`Looking for: Semester="${semester}", Department="${department}"`);
+      console.log(`========================================`);
+      
+      let studentsList: Student[] = [];
+      let debugMessages: string[] = [];
+      
+      debugMessages.push(`Searching for Sem: ${semester}, Dept: ${department}`);
+      
+      // STRATEGY 1: Direct collection scan with filtering
+      console.log("📖 STRATEGY 1: Scanning all students and filtering");
+      const allStudentsRef = collection(db, "students");
+      const allStudentsSnap = await getDocs(allStudentsRef);
+      
+      console.log(`Total students in database: ${allStudentsSnap.size}`);
+      debugMessages.push(`Total students in DB: ${allStudentsSnap.size}`);
+      
+      if (allStudentsSnap.empty) {
+        console.log("❌ No students found in the 'students' collection!");
+        debugMessages.push("❌ 'students' collection is empty!");
+        setDebugInfo(debugMessages.join("\n"));
+        return [];
+      }
+      
+      // Log first student structure for debugging
+      const firstStudent = allStudentsSnap.docs[0];
+      console.log("📋 Sample student structure:", JSON.stringify(firstStudent.data(), null, 2));
+      debugMessages.push(`Sample student fields: ${Object.keys(firstStudent.data()).join(", ")}`);
+      
+      // Filter students matching semester and department
+      allStudentsSnap.docs.forEach(doc => {
+        const data = doc.data();
+        const studentSemester = data.semester?.toString() || data.Semester?.toString() || "";
+        const studentDepartment = data.department?.toString() || data.Department?.toString() || data.dept?.toString() || "";
+        const targetSemester = semester.toString();
+        const targetDepartment = department.toString();
+        
+        console.log(`Checking student: ${data.name || data.Name}, Sem: "${studentSemester}" vs "${targetSemester}", Dept: "${studentDepartment}" vs "${targetDepartment}"`);
+        
+        if (studentSemester === targetSemester && studentDepartment === targetDepartment) {
+          studentsList.push({
+            id: doc.id,
+            name: data.name || data.Name || data.fullName || data.studentName || "Unknown",
+            rollNumber: data.rollNumber || data.rollNo || data.rollNum || data.registrationNumber || "",
+            semester: studentSemester,
+            department: studentDepartment,
+            email: data.email || data.Email || "",
+            phone: data.phone || data.Phone || data.mobile || "",
+          } as Student);
+          console.log(`✅ MATCH FOUND: ${data.name}`);
+        }
+      });
+      
+      console.log(`Strategy 1 found: ${studentsList.length} students`);
+      debugMessages.push(`Strategy 1 found: ${studentsList.length} students`);
+      
+      // STRATEGY 2: If no students found, try case-insensitive matching
+      if (studentsList.length === 0) {
+        console.log("🔄 STRATEGY 2: Trying case-insensitive matching");
+        debugMessages.push("Trying case-insensitive matching...");
+        
+        const targetSemesterLower = semester.toString().toLowerCase();
+        const targetDepartmentLower = department.toString().toLowerCase();
+        
+        allStudentsSnap.docs.forEach(doc => {
+          const data = doc.data();
+          const studentSemester = (data.semester?.toString() || data.Semester?.toString() || "").toLowerCase();
+          const studentDepartment = (data.department?.toString() || data.Department?.toString() || data.dept?.toString() || "").toLowerCase();
+          
+          if (studentSemester === targetSemesterLower && studentDepartment === targetDepartmentLower) {
+            studentsList.push({
+              id: doc.id,
+              name: data.name || data.Name || data.fullName || data.studentName || "Unknown",
+              rollNumber: data.rollNumber || data.rollNo || data.rollNum || data.registrationNumber || "",
+              semester: data.semester?.toString() || data.Semester?.toString() || "",
+              department: data.department?.toString() || data.Department?.toString() || "",
+              email: data.email || data.Email || "",
+              phone: data.phone || data.Phone || data.mobile || "",
+            } as Student);
+          }
+        });
+        
+        console.log(`Strategy 2 found: ${studentsList.length} students`);
+        debugMessages.push(`Strategy 2 found: ${studentsList.length} students`);
+      }
+      
+      // STRATEGY 3: Try using Firestore queries
+      if (studentsList.length === 0) {
+        console.log("🔄 STRATEGY 3: Trying Firestore queries");
+        debugMessages.push("Trying Firestore queries...");
+        
+        // Try different field name combinations
+        const fieldCombinations = [
+          { semField: "semester", deptField: "department" },
+          { semField: "Semester", deptField: "Department" },
+          { semField: "sem", deptField: "dept" },
+          { semField: "session", deptField: "branch" },
+        ];
+        
+        for (const combo of fieldCombinations) {
+          try {
+            const q = query(
+              collection(db, "students"),
+              where(combo.semField, "==", semester.toString()),
+              where(combo.deptField, "==", department.toString())
+            );
+            const querySnap = await getDocs(q);
+            
+            if (!querySnap.empty) {
+              querySnap.docs.forEach(doc => {
+                studentsList.push({
+                  id: doc.id,
+                  name: doc.data().name || doc.data().Name || "Unknown",
+                  rollNumber: doc.data().rollNumber || doc.data().rollNo || "",
+                  semester: doc.data()[combo.semField]?.toString() || "",
+                  department: doc.data()[combo.deptField] || "",
+                  email: doc.data().email || "",
+                  phone: doc.data().phone || "",
+                } as Student);
+              });
+              console.log(`Found ${studentsList.length} students using fields: ${combo.semField}, ${combo.deptField}`);
+              debugMessages.push(`Found using ${combo.semField}/${combo.deptField}`);
+              break;
+            }
+          } catch (error) {
+            console.log(`Query failed for ${combo.semField}/${combo.deptField}:`, error);
+          }
+        }
+      }
+      
+      console.log(`🎯 FINAL RESULT: Found ${studentsList.length} students`);
+      debugMessages.push(`✅ Total students found: ${studentsList.length}`);
+      
+      // Log all found students
+      studentsList.forEach((student, index) => {
+        console.log(`  ${index + 1}. ${student.name} (Roll: ${student.rollNumber})`);
+      });
+      
+      setDebugInfo(debugMessages.join("\n"));
+      setStudents(studentsList);
+      return studentsList;
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error("Error fetching students:", errorMessage);
+      setDebugInfo(`Error: ${errorMessage}`);
+      return [];
+    }
+  };
+
   // Fetch class teacher data
   const fetchClassTeacherData = useCallback(async () => {
     if (!user?.uid) {
@@ -180,9 +352,12 @@ export default function ClassTeacherDashboard() {
     }
 
     try {
-      console.log("Fetching class teacher data for UID:", user.uid);
+      console.log("========================================");
+      console.log("🚀 FETCHING CLASS TEACHER DATA");
+      console.log("User UID:", user.uid);
+      console.log("========================================");
       
-      // First, fetch teacher info directly
+      // Fetch teacher info
       await fetchTeacherDataDirect();
 
       // Fetch class teacher assignment
@@ -193,13 +368,16 @@ export default function ClassTeacherDashboard() {
       const classTeacherSnap = await getDocs(classTeacherQuery);
       
       if (classTeacherSnap.empty) {
-        console.log("No class teacher assignment found");
+        console.log("❌ No class teacher assignment found");
         Alert.alert("Error", "No class assigned to you. Contact HOD.");
         setLoading(false);
         return;
       }
       
       const classData = classTeacherSnap.docs[0].data();
+      console.log("📋 Class data:", JSON.stringify(classData, null, 2));
+      console.log(`Assigned Class - Semester: "${classData.semester}", Department: "${classData.department}"`);
+      
       setClassTeacherInfo({
         semester: classData.semester,
         department: classData.department,
@@ -220,23 +398,8 @@ export default function ClassTeacherDashboard() {
         }
       }
 
-      // Fetch students in the class
-      const studentsQuery = query(
-        collection(db, "students"),
-        where("semester", "==", classData.semester),
-        where("department", "==", classData.department)
-      );
-      const studentsSnap = await getDocs(studentsQuery);
-      const studentsList = studentsSnap.docs.map(doc => ({
-        id: doc.id,
-        name: doc.data().name || doc.data().Name || "",
-        rollNumber: doc.data().rollNumber || doc.data().rollNo || "",
-        semester: doc.data().semester || "",
-        department: doc.data().department || "",
-        email: doc.data().email || "",
-        phone: doc.data().phone || "",
-      } as Student));
-      setStudents(studentsList);
+      // Fetch students with enhanced function
+      await fetchStudents(classData.semester, classData.department);
 
       // Fetch pending student requests
       const requestsQuery = query(
@@ -251,7 +414,8 @@ export default function ClassTeacherDashboard() {
       setPendingRequests(requestsList);
 
     } catch (error) {
-      console.error("Error fetching class teacher data:", error);
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      console.error("Error fetching class teacher data:", errorMessage);
       Alert.alert("Error", "Failed to load dashboard data");
     } finally {
       setLoading(false);
@@ -306,8 +470,9 @@ export default function ClassTeacherDashboard() {
       });
       Alert.alert("Approved", `Request from ${request.studentName} approved`);
       fetchClassTeacherData();
-    } catch {
-      Alert.alert("Error", "Failed to approve request");
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      Alert.alert("Error", `Failed to approve request: ${errorMessage}`);
     }
   };
 
@@ -329,8 +494,9 @@ export default function ClassTeacherDashboard() {
               });
               Alert.alert("Rejected", "Request rejected");
               fetchClassTeacherData();
-            } catch  {
-              Alert.alert("Error", "Failed to reject request");
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : "Unknown error";
+              Alert.alert("Error", `Failed to reject request: ${errorMessage}`);
             }
           },
         },
@@ -339,18 +505,6 @@ export default function ClassTeacherDashboard() {
   };
 
   const totalStudents = students.length;
-
-  const navigateToAttendance = () => {
-    router.push("/Tabs/Teacherdashboard/Attendence");
-  };
-
-  const navigateToNotes = () => {
-    router.push("/Tabs/Teacherdashboard/notes");
-  };
-
-  const navigateToProfileSettings = () => {
-    router.push("/Tabs/ProfileSettings");
-  };
 
   const filteredStudents = students.filter(student =>
     student.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -399,7 +553,21 @@ export default function ClassTeacherDashboard() {
             </View>
           </LinearGradient>
 
-          {/* Teacher Profile Card with Updated Department */}
+          {/* Debug Info Panel */}
+          <View style={[styles.debugPanel, { backgroundColor: '#FFE5E5' }]}>
+            <Text style={styles.debugTitle}>🔍 Debug Information</Text>
+            <Text style={styles.debugText}>Class: Sem {classTeacherInfo?.semester} - {classTeacherInfo?.department}</Text>
+            <Text style={styles.debugText}>Students Found: {totalStudents}</Text>
+            <Text style={styles.debugText}>Last Updated: {new Date().toLocaleTimeString()}</Text>
+            {debugInfo !== "" && (
+              <View style={styles.debugDetails}>
+                <Text style={styles.debugDetailsTitle}>Details:</Text>
+                <Text style={styles.debugDetailsText}>{debugInfo}</Text>
+              </View>
+            )}
+          </View>
+
+          {/* Teacher Profile Card */}
           <Animated.View style={[styles.profileCard, { backgroundColor: colors.card, elevation: 3 }]}>
             <View style={styles.profileHeader}>
               <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
@@ -430,11 +598,10 @@ export default function ClassTeacherDashboard() {
                   </Text>
                 </View>
                 
-                {/* This shows the UPDATED teacher department from profile */}
                 <View style={styles.detailBadge}>
                   <Ionicons name="business-outline" size={12} color={colors.primary} />
                   <Text style={[styles.detailText, { color: colors.textDark, fontWeight: '500' }]}>
-                    Department: {teacherInfo?.department || "Not set"}
+                    My Department: {teacherInfo?.department || "Not set"}
                   </Text>
                 </View>
                 
@@ -443,16 +610,6 @@ export default function ClassTeacherDashboard() {
                     <Ionicons name="call-outline" size={12} color={colors.textLight} />
                     <Text style={[styles.detailText, { color: colors.textLight }]}>
                       {teacherInfo.phone}
-                    </Text>
-                  </View>
-                )}
-
-                {/* Show qualification if available */}
-                {teacherInfo?.qualification && (
-                  <View style={styles.detailBadge}>
-                    <Ionicons name="school-outline" size={12} color={colors.textLight} />
-                    <Text style={[styles.detailText, { color: colors.textLight }]}>
-                      {teacherInfo.qualification}
                     </Text>
                   </View>
                 )}
@@ -475,7 +632,7 @@ export default function ClassTeacherDashboard() {
             </Animated.View>
           </TouchableOpacity>
 
-          {/* Class Information Card - Shows the CLASS department (not teacher's personal dept) */}
+          {/* Class Information Card */}
           <View style={[styles.infoCard, { backgroundColor: colors.card, elevation: 2 }]}>
             <Text style={[styles.infoCardTitle, { color: colors.textDark }]}>Assigned Class Information</Text>
             <View style={styles.infoRow}>
@@ -508,7 +665,7 @@ export default function ClassTeacherDashboard() {
                 end={{ x: 1, y: 1 }}
               >
                 <Ionicons name="people-circle-outline" size={28} color="#fff" />
-                <Text style={styles.viewStudentsText}>View All Students</Text>
+                <Text style={styles.viewStudentsText}>View All Students ({totalStudents})</Text>
                 <Ionicons name="chevron-forward-outline" size={24} color="#fff" />
               </LinearGradient>
             </TouchableOpacity>
@@ -518,21 +675,21 @@ export default function ClassTeacherDashboard() {
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Quick Actions</Text>
             <View style={styles.actionGrid}>
-              <TouchableOpacity style={styles.actionCard} onPress={navigateToAttendance}>
+              <TouchableOpacity style={styles.actionCard} onPress={navigateToAttendance} activeOpacity={0.8}>
                 <LinearGradient colors={["#4CAF50", "#45a049"]} style={styles.actionGradient}>
                   <Ionicons name="checkbox-outline" size={28} color="#fff" />
                   <Text style={styles.actionText}>Mark Attendance</Text>
                 </LinearGradient>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.actionCard} onPress={() => setShowRequestsModal(true)}>
+              <TouchableOpacity style={styles.actionCard} onPress={navigateToStudentRequests} activeOpacity={0.8}>
                 <LinearGradient colors={["#9C27B0", "#7B1FA2"]} style={styles.actionGradient}>
                   <Ionicons name="notifications-outline" size={28} color="#fff" />
                   <Text style={styles.actionText}>Requests ({pendingRequests.length})</Text>
                 </LinearGradient>
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.actionCard} onPress={navigateToNotes}>
+              <TouchableOpacity style={styles.actionCard} onPress={navigateToNotes} activeOpacity={0.8}>
                 <LinearGradient colors={["#FF9800", "#F57C00"]} style={styles.actionGradient}>
                   <Ionicons name="document-text-outline" size={28} color="#fff" />
                   <Text style={styles.actionText}>Add Note</Text>
@@ -543,7 +700,6 @@ export default function ClassTeacherDashboard() {
         </ScrollView>
       </Animated.View>
 
-      {/* Keep your existing modals here - they remain the same */}
       {/* Student Requests Modal */}
       <Modal visible={showRequestsModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
@@ -591,6 +747,7 @@ export default function ClassTeacherDashboard() {
               </TouchableOpacity>
             </LinearGradient>
             
+            {/* Search Bar */}
             <View style={[styles.searchContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
               <Ionicons name="search-outline" size={20} color={colors.textLight} />
               <TextInput
@@ -607,53 +764,72 @@ export default function ClassTeacherDashboard() {
               )}
             </View>
             
-            <FlatList
-              data={filteredStudents}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item, index }) => (
-                <View style={[styles.studentModalItem, { borderBottomColor: colors.border }]}>
-                  <View style={[styles.studentNumberContainer, { backgroundColor: colors.primary + "20" }]}>
-                    <Text style={[styles.studentNumber, { color: colors.primary }]}>{index + 1}</Text>
-                  </View>
-                  <View style={styles.studentModalInfo}>
-                    <Text style={[styles.studentModalName, { color: colors.textDark }]}>{item.name}</Text>
-                    <View style={styles.studentModalDetails}>
-                      <View style={styles.detailChip}>
-                        <Ionicons name="document-text-outline" size={12} color={colors.textLight} />
-                        <Text style={[styles.studentModalDetail, { color: colors.textLight }]}>
-                          Roll: {item.rollNumber}
-                        </Text>
-                      </View>
-                      <View style={styles.detailChip}>
-                        <Ionicons name="school-outline" size={12} color={colors.textLight} />
-                        <Text style={[styles.studentModalDetail, { color: colors.textLight }]}>
-                          Sem: {item.semester}
-                        </Text>
-                      </View>
+            {totalStudents === 0 ? (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="people-outline" size={64} color={colors.textLight} />
+                <Text style={[styles.emptyText, { color: colors.textDark }]}>No Students Found</Text>
+                <Text style={[styles.emptySubText, { color: colors.textLight }]}>
+                  No students enrolled in Semester {classTeacherInfo?.semester} - {classTeacherInfo?.department}
+                </Text>
+                <Text style={[styles.emptySubText, { color: colors.textLight, marginTop: 10 }]}>
+                  Check console logs for debugging information
+                </Text>
+                <TouchableOpacity 
+                  style={[styles.refreshStudentsBtn, { backgroundColor: colors.primary }]}
+                  onPress={fetchClassTeacherData}
+                >
+                  <Text style={styles.refreshStudentsText}>Refresh Data</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <FlatList
+                data={filteredStudents}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item, index }) => (
+                  <View style={[styles.studentModalItem, { borderBottomColor: colors.border }]}>
+                    <View style={[styles.studentNumberContainer, { backgroundColor: colors.primary + "20" }]}>
+                      <Text style={[styles.studentNumber, { color: colors.primary }]}>{index + 1}</Text>
                     </View>
-                    {item.email && (
-                      <View style={styles.detailChip}>
-                        <Ionicons name="mail-outline" size={12} color={colors.textLight} />
-                        <Text style={[styles.studentModalEmail, { color: colors.textLight }]}>{item.email}</Text>
+                    <View style={styles.studentModalInfo}>
+                      <Text style={[styles.studentModalName, { color: colors.textDark }]}>{item.name}</Text>
+                      <View style={styles.studentModalDetails}>
+                        <View style={styles.detailChip}>
+                          <Ionicons name="document-text-outline" size={12} color={colors.textLight} />
+                          <Text style={[styles.studentModalDetail, { color: colors.textLight }]}>
+                            Roll: {item.rollNumber || "N/A"}
+                          </Text>
+                        </View>
+                        <View style={styles.detailChip}>
+                          <Ionicons name="school-outline" size={12} color={colors.textLight} />
+                          <Text style={[styles.studentModalDetail, { color: colors.textLight }]}>
+                            Sem: {item.semester}
+                          </Text>
+                        </View>
                       </View>
-                    )}
-                    {item.phone && (
-                      <View style={styles.detailChip}>
-                        <Ionicons name="call-outline" size={12} color={colors.textLight} />
-                        <Text style={[styles.studentModalPhone, { color: colors.textLight }]}>{item.phone}</Text>
-                      </View>
-                    )}
+                      {item.email && (
+                        <View style={styles.detailChip}>
+                          <Ionicons name="mail-outline" size={12} color={colors.textLight} />
+                          <Text style={[styles.studentModalEmail, { color: colors.textLight }]}>{item.email}</Text>
+                        </View>
+                      )}
+                      {item.phone && (
+                        <View style={styles.detailChip}>
+                          <Ionicons name="call-outline" size={12} color={colors.textLight} />
+                          <Text style={[styles.studentModalPhone, { color: colors.textLight }]}>{item.phone}</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
-                </View>
-              )}
-              ListEmptyComponent={
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="people-outline" size={64} color={colors.textLight} />
-                  <Text style={[styles.emptyText, { color: colors.textLight }]}>No students found</Text>
-                  <Text style={[styles.emptySubText, { color: colors.textLight }]}>Try adjusting your search</Text>
-                </View>
-              }
-            />
+                )}
+                ListEmptyComponent={
+                  <View style={styles.emptyContainer}>
+                    <Ionicons name="search-outline" size={64} color={colors.textLight} />
+                    <Text style={[styles.emptyText, { color: colors.textLight }]}>No matching students</Text>
+                    <Text style={[styles.emptySubText, { color: colors.textLight }]}>Try adjusting your search</Text>
+                  </View>
+                }
+              />
+            )}
           </View>
         </View>
       </Modal>
@@ -685,24 +861,41 @@ const styles = StyleSheet.create({
     justifyContent: "center", 
     alignItems: "center" 
   },
-  themeTooltip: {
-    position: 'absolute',
-    top: 100,
-    right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 8,
-    paddingHorizontal: 12,
-    borderRadius: 20,
-    gap: 8,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    zIndex: 1000,
+  debugPanel: {
+    margin: 10,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#FF9999',
   },
-  themeTooltipText: { fontSize: 12, fontWeight: '500' },
+  debugTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 6,
+  },
+  debugText: {
+    fontSize: 12,
+    color: '#333',
+    marginVertical: 2,
+  },
+  debugDetails: {
+    marginTop: 8,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#FF9999',
+  },
+  debugDetailsTitle: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 4,
+  },
+  debugDetailsText: {
+    fontSize: 10,
+    color: '#555',
+    fontFamily: 'monospace',
+  },
   headerTitle: { fontSize: 20, fontWeight: "bold", color: "#fff" },
   headerSubtitle: { fontSize: 12, color: "#fff", opacity: 0.9, marginTop: 2 },
   
@@ -784,5 +977,15 @@ const styles = StyleSheet.create({
   
   emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
   emptyText: { textAlign: "center", padding: 20, fontSize: 16, marginTop: 10 },
-  emptySubText: { fontSize: 12, marginTop: 5 },
+  emptySubText: { fontSize: 12, marginTop: 5, textAlign: 'center', paddingHorizontal: 20 },
+  refreshStudentsBtn: {
+    marginTop: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  refreshStudentsText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
 });

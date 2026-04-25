@@ -28,6 +28,7 @@ import {
     ScrollView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db, auth } from "../../../config/firebaseConfig.native";
 import { useTheme } from "../../../context/ThemeContext";
 import SubjectManagementModal from "../../Tabs/Teacherdashboard/SubjectManagementModal";
@@ -94,7 +95,6 @@ export default function HODDashboard() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   
-  // Animations
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
   const menuItemAnims = useRef<Animated.Value[]>([]).current;
@@ -115,7 +115,6 @@ export default function HODDashboard() {
   const semesters = ["1", "2", "3", "4", "5", "6"];
   const roles = ["teacher", "class_teacher", "exam_coordinator", "lab_incharge"];
 
-  // Pre-create animation values for menu items
   useEffect(() => {
     for (let i = 0; i < 6; i++) {
       if (!menuItemAnims[i]) {
@@ -328,6 +327,30 @@ export default function HODDashboard() {
     }
   };
 
+  const handleLogout = async () => {
+    Alert.alert(
+      "Logout",
+      "Are you sure you want to logout?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Logout",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await AsyncStorage.removeItem("teacherUser");
+              await AsyncStorage.removeItem("userType");
+              await auth.signOut();
+              router.replace("/");
+            } catch (error) {
+              console.error("Logout error:", error);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const navigateToManageTeachers = () => {
     router.push({
       pathname: "/Tabs/Teacherdashboard/ManageTeachers",
@@ -370,8 +393,7 @@ export default function HODDashboard() {
       title: "Notifications",
       icon: "notifications-outline",
       color: "#FF9800",
-      bgColor: "#FFF3E0",
-      description: `${pendingRequests} pending requests`,
+      description: `${pendingRequests} pending`,
       count: notifications.filter(n => !n.read).length,
       onPress: navigateToNotifications,
     },
@@ -380,8 +402,7 @@ export default function HODDashboard() {
       title: "Teachers",
       icon: "school-outline",
       color: "#4CAF50",
-      bgColor: "#E8F5E9",
-      description: `${teachers.length} total teachers`,
+      description: `${teachers.length} teachers`,
       count: 0,
       onPress: navigateToManageTeachers,
     },
@@ -390,8 +411,7 @@ export default function HODDashboard() {
       title: "Subjects",
       icon: "book-outline",
       color: "#9C27B0",
-      bgColor: "#F3E5F5",
-      description: "Add / Delete / Assign",
+      description: "Manage subjects",
       count: 0,
       onPress: () => setSubjectModalVisible(true),
     },
@@ -399,9 +419,8 @@ export default function HODDashboard() {
       id: "4",
       title: "Students",
       icon: "people-circle-outline",
-      color: "#9C27B0",
-      bgColor: "#F3E5F5",
-      description: `${students.length} total students`,
+      color: "#2196F3",
+      description: `${students.length} students`,
       count: 0,
       onPress: navigateToStudents,
     },
@@ -410,7 +429,6 @@ export default function HODDashboard() {
       title: "Notes",
       icon: "document-text-outline",
       color: "#00BCD4",
-      bgColor: "#E0F7FA",
       description: `${notes.length} notes`,
       count: 0,
       onPress: navigateToNotes,
@@ -420,8 +438,7 @@ export default function HODDashboard() {
       title: "Attendance",
       icon: "calendar-outline",
       color: "#FF5722",
-      bgColor: "#FBE9E7",
-      description: "View attendance",
+      description: "View records",
       count: 0,
       onPress: navigateToAttendance,
     },
@@ -437,80 +454,93 @@ export default function HODDashboard() {
           opacity: fadeAnim,
           transform: [{ translateY: slideAnim }],
         }}>
-          {/* HOD Profile Header */}
-          <LinearGradient colors={[colors.primary, colors.secondary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.profileHeader}>
-            <View style={styles.profileCard}>
-              <View style={styles.headerButtons}>
-                <TouchableOpacity onPress={toggleTheme} style={styles.iconButton}>
-                  <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={22} color="#fff" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={navigateToProfile} style={styles.iconButton}>
-                  <Ionicons name="settings-outline" size={22} color="#fff" />
-                </TouchableOpacity>
+          {/* Profile Header */}
+          <LinearGradient 
+            colors={[colors.primary, colors.secondary]} 
+            start={{ x: 0, y: 0 }} 
+            end={{ x: 1, y: 1 }} 
+            style={styles.profileHeader}
+          >
+            <View style={styles.headerActions}>
+              <TouchableOpacity onPress={toggleTheme} style={styles.actionButton}>
+                <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={20} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={navigateToProfile} style={styles.actionButton}>
+                <Ionicons name="person-outline" size={20} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleLogout} style={styles.actionButton}>
+                <Ionicons name="log-out-outline" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.profileImageContainer}>
+              <View style={styles.profileImageBorder}>
+                <Image 
+                  source={require("../../../assets/images/hod.png")} 
+                  style={styles.profileImage} 
+                  defaultSource={require("../../../assets/images/hod.png")} 
+                />
               </View>
-              <View style={styles.profileImageWrapper}>
-                <View style={styles.profileImageGlow} />
-                <Image source={require("../../../assets/images/hod.png")} style={styles.profileImage} defaultSource={require("../../../assets/images/hod.png")} />
-                <View style={styles.statusBadge}><View style={styles.statusDot} /></View>
-              </View>
-              <Text style={styles.hodName}>{hodData?.name || "Head of Department"}</Text>
-              <View style={styles.roleContainer}>
-                <Ionicons name="shield-checkmark-outline" size={16} color="#fff" />
-                <Text style={styles.roleTitle}>Head of Department</Text>
-              </View>
-              <View style={styles.contactInfo}>
-                <View style={styles.contactItem}>
-                  <Ionicons name="mail-outline" size={14} color="rgba(255,255,255,0.9)" />
-                  <Text style={styles.contactText}>{hodData?.email || "hod@college.edu"}</Text>
+              <View style={styles.onlineBadge} />
+            </View>
+
+            <Text style={styles.hodName}>{hodData?.name || "Head of Department"}</Text>
+            
+            <View style={styles.roleBadge}>
+              <Ionicons name="shield-checkmark" size={14} color={colors.primary} />
+              <Text style={styles.roleBadgeText}>HOD</Text>
+            </View>
+
+            <View style={styles.contactInfoGrid}>
+              {hodData?.email && (
+                <View style={styles.contactChip}>
+                  <Ionicons name="mail-outline" size={14} color="rgba(255,255,255,0.8)" />
+                  <Text style={styles.contactChipText}>{hodData.email}</Text>
                 </View>
-                {hodData?.department && (
-                  <View style={styles.contactItem}>
-                    <Ionicons name="business-outline" size={14} color="rgba(255,255,255,0.9)" />
-                    <Text style={styles.contactText}>{hodData.department} Department</Text>
-                  </View>
-                )}
-                {hodData?.phone && (
-                  <View style={styles.contactItem}>
-                    <Ionicons name="call-outline" size={14} color="rgba(255,255,255,0.9)" />
-                    <Text style={styles.contactText}>{hodData.phone}</Text>
-                  </View>
-                )}
-              </View>
+              )}
+              {hodData?.department && (
+                <View style={styles.contactChip}>
+                  <Ionicons name="business-outline" size={14} color="rgba(255,255,255,0.8)" />
+                  <Text style={styles.contactChipText}>{hodData.department}</Text>
+                </View>
+              )}
+              {hodData?.phone && (
+                <View style={styles.contactChip}>
+                  <Ionicons name="call-outline" size={14} color="rgba(255,255,255,0.8)" />
+                  <Text style={styles.contactChipText}>{hodData.phone}</Text>
+                </View>
+              )}
             </View>
           </LinearGradient>
 
           {/* Stats Cards */}
           <View style={styles.statsContainer}>
             <View style={[styles.statCard, { backgroundColor: colors.card }]}>
-              <View style={[styles.statIconBg, { backgroundColor: "#E8F0FE" }]}>
-                <Ionicons name="people-outline" size={24} color="#1976D2" />
+              <View style={[styles.statIconWrapper, { backgroundColor: `${colors.primary}15` }]}>
+                <Ionicons name="people-outline" size={22} color={colors.primary} />
               </View>
-              <View>
-                <Text style={[styles.statValue, { color: colors.textDark }]}>{teachers.length}</Text>
-                <Text style={[styles.statLabel, { color: colors.textLight }]}>Teachers</Text>
-              </View>
+              <Text style={[styles.statNumber, { color: colors.textDark }]}>{teachers.length}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Teachers</Text>
             </View>
+            
             <View style={[styles.statCard, { backgroundColor: colors.card }]}>
-              <View style={[styles.statIconBg, { backgroundColor: "#E8F5E9" }]}>
-                <Ionicons name="school-outline" size={24} color="#388E3C" />
+              <View style={[styles.statIconWrapper, { backgroundColor: `${colors.primary}15` }]}>
+                <Ionicons name="school-outline" size={22} color={colors.primary} />
               </View>
-              <View>
-                <Text style={[styles.statValue, { color: colors.textDark }]}>{students.length}</Text>
-                <Text style={[styles.statLabel, { color: colors.textLight }]}>Students</Text>
-              </View>
+              <Text style={[styles.statNumber, { color: colors.textDark }]}>{students.length}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Students</Text>
             </View>
+            
             <View style={[styles.statCard, { backgroundColor: colors.card }]}>
-              <View style={[styles.statIconBg, { backgroundColor: "#FFF3E0" }]}>
-                <Ionicons name="alert-circle-outline" size={24} color="#F57C00" />
+              <View style={[styles.statIconWrapper, { backgroundColor: `${colors.primary}15` }]}>
+                <Ionicons name="alert-circle-outline" size={22} color={colors.primary} />
               </View>
-              <View>
-                <Text style={[styles.statValue, { color: colors.textDark }]}>{pendingRequests}</Text>
-                <Text style={[styles.statLabel, { color: colors.textLight }]}>Requests</Text>
-              </View>
+              <Text style={[styles.statNumber, { color: colors.textDark }]}>{pendingRequests}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Requests</Text>
             </View>
           </View>
 
-          {/* Quick Actions Grid */}
+          {/* Quick Actions */}
           <View style={styles.sectionContainer}>
             <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Quick Actions</Text>
             <View style={styles.menuGrid}>
@@ -518,19 +548,25 @@ export default function HODDashboard() {
                 <Animated.View
                   key={item.id}
                   style={{
-                    width: (width - 52) / 2,
+                    width: (width - 48) / 2,
                     opacity: menuItemAnims[idx] || new Animated.Value(0),
                     transform: [{ translateY: (menuItemAnims[idx] || new Animated.Value(0)).interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) }],
                   }}
                 >
-                  <TouchableOpacity style={[styles.menuCard, { backgroundColor: colors.card }]} onPress={item.onPress} activeOpacity={0.8}>
-                    <View style={[styles.menuIconContainer, { backgroundColor: `${item.color}15` }]}>
-                      <Ionicons name={item.icon as any} size={28} color={item.color} />
+                  <TouchableOpacity 
+                    style={[styles.menuCard, { backgroundColor: colors.card }]} 
+                    onPress={item.onPress} 
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.menuIconWrapper, { backgroundColor: `${item.color}15` }]}>
+                      <Ionicons name={item.icon as any} size={26} color={item.color} />
                     </View>
-                    <Text style={[styles.menuTitle, { color: colors.textDark }]}>{item.title}</Text>
-                    <Text style={[styles.menuDescription, { color: colors.textLight }]}>{item.description}</Text>
+                    <Text style={[styles.menuCardTitle, { color: colors.textDark }]}>{item.title}</Text>
+                    <Text style={[styles.menuCardDesc, { color: colors.textLight }]}>{item.description}</Text>
                     {(item.count ?? 0) > 0 && (
-                      <View style={styles.badge}><Text style={styles.badgeText}>{item.count ?? 0}</Text></View>
+                      <View style={styles.menuBadge}>
+                        <Text style={styles.menuBadgeText}>{item.count ?? 0}</Text>
+                      </View>
                     )}
                   </TouchableOpacity>
                 </Animated.View>
@@ -543,15 +579,17 @@ export default function HODDashboard() {
             <View style={styles.sectionContainer}>
               <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Recent Notifications</Text>
               {notifications.slice(0, 3).map((notification) => (
-                <TouchableOpacity key={notification.id} onPress={navigateToNotifications}>
-                  <View style={[styles.notificationCard, { backgroundColor: colors.card }]}>
-                    <View style={styles.notificationIcon}>
-                      <Ionicons name="notifications-outline" size={20} color={colors.primary} />
+                <TouchableOpacity key={notification.id} onPress={navigateToNotifications} activeOpacity={0.7}>
+                  <View style={[styles.notificationItem, { backgroundColor: colors.card }]}>
+                    <View style={[styles.notificationIcon, { backgroundColor: `${colors.primary}10` }]}>
+                      <Ionicons name="notifications-outline" size={18} color={colors.primary} />
                     </View>
                     <View style={styles.notificationContent}>
                       <Text style={[styles.notificationTitle, { color: colors.textDark }]}>{notification.title}</Text>
                       <Text style={[styles.notificationMessage, { color: colors.textLight }]} numberOfLines={2}>{notification.message}</Text>
-                      <Text style={[styles.notificationTime, { color: colors.textLight }]}>{new Date(notification.createdAt).toLocaleDateString()}</Text>
+                      <Text style={[styles.notificationTime, { color: colors.textLight }]}>
+                        {new Date(notification.createdAt).toLocaleDateString()}
+                      </Text>
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -564,13 +602,17 @@ export default function HODDashboard() {
             <View style={[styles.sectionContainer, styles.lastSection]}>
               <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Recent Notes</Text>
               {notes.slice(0, 2).map((note) => (
-                <TouchableOpacity key={note.id} onPress={navigateToNotes}>
-                  <View style={[styles.noteCard, { backgroundColor: colors.card }]}>
-                    <View style={styles.noteIcon}><Ionicons name="document-text-outline" size={20} color="#00BCD4" /></View>
+                <TouchableOpacity key={note.id} onPress={navigateToNotes} activeOpacity={0.7}>
+                  <View style={[styles.noteItem, { backgroundColor: colors.card }]}>
+                    <View style={[styles.noteIcon, { backgroundColor: "#00BCD415" }]}>
+                      <Ionicons name="document-text-outline" size={18} color="#00BCD4" />
+                    </View>
                     <View style={styles.noteContent}>
                       <Text style={[styles.noteTitle, { color: colors.textDark }]}>{note.title}</Text>
                       <Text style={[styles.notePreview, { color: colors.textLight }]} numberOfLines={1}>{note.content}</Text>
-                      <Text style={[styles.noteMeta, { color: colors.textLight }]}>By {note.createdBy} • {new Date(note.createdAt).toLocaleDateString()}</Text>
+                      <Text style={[styles.noteMeta, { color: colors.textLight }]}>
+                        By {note.createdBy} • {new Date(note.createdAt).toLocaleDateString()}
+                      </Text>
                     </View>
                   </View>
                 </TouchableOpacity>
@@ -580,14 +622,6 @@ export default function HODDashboard() {
         </Animated.View>
       </ScrollView>
 
-      {/* Add Note FAB */}
-      <TouchableOpacity style={styles.fab} onPress={() => setShowAddNoteModal(true)} activeOpacity={0.8}>
-        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.fabGradient}>
-          <Ionicons name="add-outline" size={28} color="#fff" />
-        </LinearGradient>
-      </TouchableOpacity>
-
-      {/* Modals */}
       <SubjectManagementModal visible={subjectModalVisible} onClose={() => setSubjectModalVisible(false)} department={hodData?.department || ""} onSubjectsUpdated={() => {}} />
 
       {/* Assign Class Teacher Modal */}
@@ -687,67 +721,241 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   profileHeader: {
     paddingTop: 20,
-    paddingBottom: 30,
-    borderBottomLeftRadius: 40,
-    borderBottomRightRadius: 40,
+    paddingBottom: 32,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
   },
-  profileCard: { alignItems: "center", justifyContent: "center", paddingHorizontal: 20, position: "relative" },
-  headerButtons: {
+  headerActions: {
     position: "absolute",
-    top: 10,
-    right: 10,
+    top: 16,
+    right: 20,
     flexDirection: "row",
     gap: 12,
     zIndex: 10,
   },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.2)",
+  actionButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(255,255,255,0.15)",
     justifyContent: "center",
     alignItems: "center",
   },
-  profileImageWrapper: { position: "relative", marginBottom: 16 },
-  profileImageGlow: { position: "absolute", width: 110, height: 110, borderRadius: 55, backgroundColor: "rgba(255,255,255,0.3)", top: -5, left: -5 },
-  profileImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 4, borderColor: "#fff", backgroundColor: "#fff" },
-  statusBadge: { position: "absolute", bottom: 5, right: 5, width: 24, height: 24, borderRadius: 12, backgroundColor: "#fff", justifyContent: "center", alignItems: "center" },
-  statusDot: { width: 16, height: 16, borderRadius: 8, backgroundColor: "#4CAF50", borderWidth: 2, borderColor: "#fff" },
-  hodName: { fontSize: 24, fontWeight: "bold", color: "#fff", marginBottom: 8, textAlign: "center" },
-  roleContainer: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(255,255,255,0.2)", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginBottom: 12, gap: 6 },
-  roleTitle: { fontSize: 13, color: "#fff", fontWeight: "500" },
-  contactInfo: { alignItems: "center", gap: 6, marginTop: 4 },
-  contactItem: { flexDirection: "row", alignItems: "center", gap: 6 },
-  contactText: { fontSize: 12, color: "rgba(255,255,255,0.9)" },
-  statsContainer: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 20, marginTop: -30, gap: 12, marginBottom: 8 },
-  statCard: { flex: 1, flexDirection: "row", alignItems: "center", padding: 12, borderRadius: 20, elevation: 3, gap: 10 },
-  statIconBg: { width: 44, height: 44, borderRadius: 14, justifyContent: "center", alignItems: "center" },
-  statValue: { fontSize: 20, fontWeight: "bold" },
-  statLabel: { fontSize: 11, marginTop: 2 },
-  sectionContainer: { paddingHorizontal: 20, marginTop: 20 },
-  lastSection: { marginBottom: 80 },
-  sectionTitle: { fontSize: 18, fontWeight: "600", marginBottom: 16 },
-  menuGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", gap: 12 },
-  menuCard: { borderRadius: 20, padding: 16, position: "relative", elevation: 2, marginBottom: 4 },
-  menuIconContainer: { width: 48, height: 48, borderRadius: 16, justifyContent: "center", alignItems: "center", marginBottom: 12 },
-  menuTitle: { fontSize: 16, fontWeight: "600", marginBottom: 4 },
-  menuDescription: { fontSize: 12 },
-  badge: { position: "absolute", top: 12, right: 12, backgroundColor: "#F44336", borderRadius: 12, minWidth: 20, height: 20, justifyContent: "center", alignItems: "center", paddingHorizontal: 6 },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: "bold" },
-  notificationCard: { flexDirection: "row", borderRadius: 16, padding: 12, marginBottom: 12, elevation: 1 },
-  notificationIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#F0F2F5", justifyContent: "center", alignItems: "center", marginRight: 12 },
+  profileImageContainer: {
+    alignItems: "center",
+    marginTop: 40,
+    marginBottom: 16,
+    position: "relative",
+  },
+  profileImageBorder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: "#fff",
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  profileImage: {
+    width: 94,
+    height: 94,
+    borderRadius: 47,
+    margin: 3,
+  },
+  onlineBadge: {
+    position: "absolute",
+    bottom: 5,
+    right: width / 2 - 45,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: "#4CAF50",
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
+  hodName: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#fff",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  roleBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "#fff",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    gap: 6,
+    marginBottom: 16,
+  },
+  roleBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#7384BF",
+  },
+  contactInfoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+  },
+  contactChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.12)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+  },
+  contactChipText: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.9)",
+  },
+  statsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    marginTop: -24,
+    gap: 12,
+    marginBottom: 8,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 16,
+    paddingHorizontal: 8,
+    borderRadius: 20,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+  },
+  statIconWrapper: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  statNumber: {
+    fontSize: 20,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  statLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  sectionContainer: {
+    paddingHorizontal: 20,
+    marginTop: 24,
+  },
+  lastSection: {
+    marginBottom: 40,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: 16,
+  },
+  menuGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 12,
+  },
+  menuCard: {
+    borderRadius: 16,
+    padding: 12,
+    position: "relative",
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  menuIconWrapper: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  menuCardTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  menuCardDesc: {
+    fontSize: 10,
+  },
+  menuBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "#F44336",
+    borderRadius: 12,
+    minWidth: 20,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 6,
+  },
+  menuBadgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  notificationItem: {
+    flexDirection: "row",
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 10,
+    elevation: 1,
+  },
+  notificationIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
   notificationContent: { flex: 1 },
   notificationTitle: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
   notificationMessage: { fontSize: 12, marginBottom: 4 },
   notificationTime: { fontSize: 10 },
-  noteCard: { flexDirection: "row", borderRadius: 16, padding: 12, marginBottom: 12, elevation: 1 },
-  noteIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "#E0F7FA", justifyContent: "center", alignItems: "center", marginRight: 12 },
+  noteItem: {
+    flexDirection: "row",
+    borderRadius: 16,
+    padding: 12,
+    marginBottom: 10,
+    elevation: 1,
+  },
+  noteIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
   noteContent: { flex: 1 },
   noteTitle: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
   notePreview: { fontSize: 12, marginBottom: 4 },
   noteMeta: { fontSize: 10 },
-  fab: { position: "absolute", bottom: 20, right: 20, elevation: 6 },
-  fabGradient: { width: 56, height: 56, borderRadius: 28, justifyContent: "center", alignItems: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
   modalContent: { borderRadius: 24, width: "90%", maxHeight: "80%" },
   modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1 },

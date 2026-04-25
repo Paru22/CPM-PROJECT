@@ -3,10 +3,10 @@ import {
   Dimensions,
   Image,
   ImageBackground,
-  StyleSheet,
-  Text,
   TouchableOpacity,
   View,
+  Text,
+  StyleSheet,
 } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 
@@ -14,20 +14,26 @@ const { width } = Dimensions.get("window");
 
 export default function LoginPage() {
   const router = useRouter();
-  const { colors } = useTheme();
+  const { theme, colors } = useTheme();
+  const isDarkMode = theme === "dark";
 
   return (
     <ImageBackground
       source={require("../assets/images/clg.jpg")}
       style={styles.background}
       resizeMode="cover"
-      blurRadius={1.5}
+      blurRadius={2}
     >
-      <View style={styles.overlay} />
+      <View 
+        style={[
+          styles.overlay,
+          { backgroundColor: isDarkMode ? "rgba(0,0,0,0.6)" : "rgba(255,255,255,0.4)" }
+        ]} 
+      />
 
       <View style={styles.container}>
         <Image
-          source={require("../assets/images/logo.png")}
+          source={require("../assets/images/icon.png")}
           style={styles.logo}
           resizeMode="contain"
         />
@@ -40,6 +46,7 @@ export default function LoginPage() {
           <TouchableOpacity
             style={[styles.button, { backgroundColor: colors.primary }]}
             onPress={() => router.push("/Login/studentlogin")}
+            activeOpacity={0.8}
           >
             <Text style={styles.buttonText}>Student Login</Text>
           </TouchableOpacity>
@@ -47,6 +54,7 @@ export default function LoginPage() {
           <TouchableOpacity
             style={[styles.button, { backgroundColor: colors.primary }]}
             onPress={() => router.push("/Login/teacherlogin")}
+            activeOpacity={0.8}
           >
             <Text style={styles.buttonText}>Teacher Login</Text>
           </TouchableOpacity>
@@ -63,13 +71,16 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255, 255, 255, 0.4)",
+    position: "absolute" as const,  // Fixed: proper literal type
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   container: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+    justifyContent: "center" as const,  // Fixed: proper literal type
+    alignItems: "center" as const,       // Fixed: proper literal type
     paddingHorizontal: 20,
   },
   logo: {
@@ -79,25 +90,28 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 36,
-    fontWeight: "700",
+    fontWeight: "700" as const,  // Fixed: proper literal type
     marginBottom: 50,
   },
   buttonContainer: {
     width: "100%",
-    alignItems: "center",
+    alignItems: "center" as const,  // Fixed: proper literal type
   },
   button: {
     width: width * 0.8,
     paddingVertical: 15,
     borderRadius: 10,
-    alignItems: "center",
+    alignItems: "center" as const,  // Fixed: proper literal type
     marginVertical: 10,
     elevation: 5,
-    boxShadow: "0px 2px 4px rgba(0,0,0,0.3)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
   buttonText: {
     color: "#fff",
     fontSize: 17,
-    fontWeight: "600",
+    fontWeight: "600" as const,  // Fixed: proper literal type
   },
 });
