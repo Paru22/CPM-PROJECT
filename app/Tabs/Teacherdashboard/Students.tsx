@@ -727,4 +727,5 @@ const styles = StyleSheet.create({
   monthlyDetails: {
     fontSize: 10,
   },
+  
 });

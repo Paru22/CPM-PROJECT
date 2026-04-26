@@ -115,6 +115,9 @@ export default function HODDashboard() {
   const semesters = ["1", "2", "3", "4", "5", "6"];
   const roles = ["teacher", "class_teacher", "exam_coordinator", "lab_incharge"];
 
+  // Calculate button width based on screen size
+  const buttonWidth = (width - 48) / 3; // 16px padding on each side + 16px gap = 48px
+
   useEffect(() => {
     for (let i = 0; i < 6; i++) {
       if (!menuItemAnims[i]) {
@@ -264,7 +267,7 @@ export default function HODDashboard() {
     try {
       const teacherRef = doc(db, "teachers", selectedRoleTeacher.id);
       await updateDoc(teacherRef, { role: newRole, updatedAt: new Date().toISOString() });
-      Alert.alert("Success", `${selectedRoleTeacher.name} has been assigned as ${newRole}`);
+      Alert.alert("Success", `${selectedRoleTeacher.name} has been assigned as ${newRole.replace("_", " ").toUpperCase()}`);
       setShowRoleModal(false);
       setSelectedRoleTeacher(null);
       setNewRole("");
@@ -278,6 +281,12 @@ export default function HODDashboard() {
   const assignClassTeacher = async () => {
     if (!selectedTeacher || !selectedSemester) {
       Alert.alert("Error", "Please select a teacher and semester");
+      return;
+    }
+
+    const existingAssignment = classTeachers.find(ct => ct.semester === selectedSemester);
+    if (existingAssignment) {
+      Alert.alert("Already Assigned", `Semester ${selectedSemester} already has a class teacher: ${existingAssignment.teacherName}`);
       return;
     }
 
@@ -344,6 +353,7 @@ export default function HODDashboard() {
               router.replace("/");
             } catch (error) {
               console.error("Logout error:", error);
+              Alert.alert("Error", "Failed to logout");
             }
           }
         }
@@ -352,31 +362,19 @@ export default function HODDashboard() {
   };
 
   const navigateToManageTeachers = () => {
-    router.push({
-      pathname: "/Tabs/Teacherdashboard/ManageTeachers",
-      params: { teachers: JSON.stringify(teachers), classTeachers: JSON.stringify(classTeachers) }
-    });
+    router.push("/Tabs/Teacherdashboard/ManageTeachers");
   };
 
   const navigateToStudents = () => {
-    router.push({
-      pathname: "/Tabs/Teacherdashboard/Students",
-      params: { students: JSON.stringify(students) }
-    });
+    router.push("/Tabs/Teacherdashboard/Students");
   };
 
   const navigateToNotifications = () => {
-    router.push({
-      pathname: "/Tabs/Teacherdashboard/HODNotifications",
-      params: { notifications: JSON.stringify(notifications), pendingRequests: pendingRequests.toString() }
-    });
+    router.push("/Tabs/Teacherdashboard/HODNotifications");
   };
 
   const navigateToNotes = () => {
-    router.push({
-      pathname: "/Tabs/Teacherdashboard/notes",
-      params: { notes: JSON.stringify(notes) }
-    });
+    router.push("/Tabs/Teacherdashboard/notes");
   };
 
   const navigateToAttendance = () => {
@@ -411,7 +409,7 @@ export default function HODDashboard() {
       title: "Subjects",
       icon: "book-outline",
       color: "#9C27B0",
-      description: "Manage subjects",
+      description: "Manage",
       count: 0,
       onPress: () => setSubjectModalVisible(true),
     },
@@ -438,11 +436,17 @@ export default function HODDashboard() {
       title: "Attendance",
       icon: "calendar-outline",
       color: "#FF5722",
-      description: "View records",
+      description: "View",
       count: 0,
       onPress: navigateToAttendance,
     },
   ];
+
+  // Split into rows of 3
+  const rows = [];
+  for (let i = 0; i < menuItems.length; i += 3) {
+    rows.push(menuItems.slice(i, i + 3));
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
@@ -513,11 +517,11 @@ export default function HODDashboard() {
             </View>
           </LinearGradient>
 
-          {/* Stats Cards */}
+          {/* Stats Cards - 3 in a row */}
           <View style={styles.statsContainer}>
             <View style={[styles.statCard, { backgroundColor: colors.card }]}>
               <View style={[styles.statIconWrapper, { backgroundColor: `${colors.primary}15` }]}>
-                <Ionicons name="people-outline" size={22} color={colors.primary} />
+                <Ionicons name="people-outline" size={24} color={colors.primary} />
               </View>
               <Text style={[styles.statNumber, { color: colors.textDark }]}>{teachers.length}</Text>
               <Text style={[styles.statLabel, { color: colors.textLight }]}>Teachers</Text>
@@ -525,7 +529,7 @@ export default function HODDashboard() {
             
             <View style={[styles.statCard, { backgroundColor: colors.card }]}>
               <View style={[styles.statIconWrapper, { backgroundColor: `${colors.primary}15` }]}>
-                <Ionicons name="school-outline" size={22} color={colors.primary} />
+                <Ionicons name="school-outline" size={24} color={colors.primary} />
               </View>
               <Text style={[styles.statNumber, { color: colors.textDark }]}>{students.length}</Text>
               <Text style={[styles.statLabel, { color: colors.textLight }]}>Students</Text>
@@ -533,45 +537,62 @@ export default function HODDashboard() {
             
             <View style={[styles.statCard, { backgroundColor: colors.card }]}>
               <View style={[styles.statIconWrapper, { backgroundColor: `${colors.primary}15` }]}>
-                <Ionicons name="alert-circle-outline" size={22} color={colors.primary} />
+                <Ionicons name="alert-circle-outline" size={24} color={colors.primary} />
               </View>
               <Text style={[styles.statNumber, { color: colors.textDark }]}>{pendingRequests}</Text>
               <Text style={[styles.statLabel, { color: colors.textLight }]}>Requests</Text>
             </View>
           </View>
 
-          {/* Quick Actions */}
+          {/* Quick Actions - 3 buttons per row */}
           <View style={styles.sectionContainer}>
             <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Quick Actions</Text>
-            <View style={styles.menuGrid}>
-              {menuItems.map((item, idx) => (
-                <Animated.View
-                  key={item.id}
-                  style={{
-                    width: (width - 48) / 2,
-                    opacity: menuItemAnims[idx] || new Animated.Value(0),
-                    transform: [{ translateY: (menuItemAnims[idx] || new Animated.Value(0)).interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) }],
-                  }}
-                >
-                  <TouchableOpacity 
-                    style={[styles.menuCard, { backgroundColor: colors.card }]} 
-                    onPress={item.onPress} 
-                    activeOpacity={0.8}
-                  >
-                    <View style={[styles.menuIconWrapper, { backgroundColor: `${item.color}15` }]}>
-                      <Ionicons name={item.icon as any} size={26} color={item.color} />
-                    </View>
-                    <Text style={[styles.menuCardTitle, { color: colors.textDark }]}>{item.title}</Text>
-                    <Text style={[styles.menuCardDesc, { color: colors.textLight }]}>{item.description}</Text>
-                    {(item.count ?? 0) > 0 && (
-                      <View style={styles.menuBadge}>
-                        <Text style={styles.menuBadgeText}>{item.count ?? 0}</Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                </Animated.View>
-              ))}
-            </View>
+            
+            {rows.map((row, rowIndex) => (
+              <View key={rowIndex} style={styles.menuRow}>
+                {row.map((item, colIndex) => {
+                  const globalIndex = rowIndex * 3 + colIndex;
+                  return (
+                    <Animated.View
+                      key={item.id}
+                      style={[
+                        styles.menuCardWrapper,
+                        { width: buttonWidth },
+                        {
+                          opacity: menuItemAnims[globalIndex] || new Animated.Value(0),
+                          transform: [{ translateY: (menuItemAnims[globalIndex] || new Animated.Value(0)).interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) }],
+                        },
+                      ]}
+                    >
+                      <TouchableOpacity 
+                        style={[styles.menuCard, { backgroundColor: colors.card }]} 
+                        onPress={item.onPress} 
+                        activeOpacity={0.8}
+                      >
+                        <View style={[styles.menuIconWrapper, { backgroundColor: `${item.color}15` }]}>
+                          <Ionicons name={item.icon as any} size={26} color={item.color} />
+                        </View>
+                        <Text style={[styles.menuCardTitle, { color: colors.textDark }]}>{item.title}</Text>
+                        <Text style={[styles.menuCardDesc, { color: colors.textLight }]}>{item.description}</Text>
+                        {(item.count ?? 0) > 0 && (
+                          <View style={styles.menuBadge}>
+                            <Text style={styles.menuBadgeText}>{item.count ?? 0}</Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    </Animated.View>
+                  );
+                })}
+                {/* Add empty placeholder if needed to maintain layout */}
+                {row.length < 3 && (
+                  <>
+                    {[...Array(3 - row.length)].map((_, i) => (
+                      <View key={`empty-${i}`} style={[styles.menuCardWrapper, { width: buttonWidth }]} />
+                    ))}
+                  </>
+                )}
+              </View>
+            ))}
           </View>
 
           {/* Recent Notifications */}
@@ -622,27 +643,60 @@ export default function HODDashboard() {
         </Animated.View>
       </ScrollView>
 
+      {/* Add Note FAB */}
+      <TouchableOpacity style={styles.fab} onPress={() => setShowAddNoteModal(true)} activeOpacity={0.8}>
+        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.fabGradient}>
+          <Ionicons name="add-outline" size={28} color="#fff" />
+        </LinearGradient>
+      </TouchableOpacity>
+
       <SubjectManagementModal visible={subjectModalVisible} onClose={() => setSubjectModalVisible(false)} department={hodData?.department || ""} onSubjectsUpdated={() => {}} />
 
       {/* Assign Class Teacher Modal */}
       <Modal animationType="slide" transparent visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Assign Class Teacher</Text>
-              <TouchableOpacity onPress={() => setModalVisible(false)}><Ionicons name="close" size={24} color={colors.textDark} /></TouchableOpacity>
-            </View>
+            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Assign Class Teacher</Text>
+              <TouchableOpacity onPress={() => setModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </LinearGradient>
             <View style={styles.modalBody}>
               <Text style={[styles.modalLabel, { color: colors.textDark }]}>Teacher: {selectedTeacher?.name}</Text>
               <Text style={[styles.modalLabel, { color: colors.textDark }]}>Select Semester:</Text>
               <View style={styles.semesterGrid}>
-                {semesters.map((sem) => (
-                  <TouchableOpacity key={sem} style={[styles.semesterOption, { backgroundColor: colors.background }, selectedSemester === sem && styles.selectedSemester]} onPress={() => setSelectedSemester(sem)}>
-                    <Text style={[styles.semesterText, { color: colors.textLight }, selectedSemester === sem && styles.selectedSemesterText]}>Sem {sem}</Text>
-                  </TouchableOpacity>
-                ))}
+                {semesters.map((sem) => {
+                  const isAssigned = classTeachers.some(ct => ct.semester === sem);
+                  return (
+                    <TouchableOpacity 
+                      key={sem} 
+                      style={[
+                        styles.semesterOption, 
+                        { backgroundColor: colors.background },
+                        selectedSemester === sem && styles.selectedSemester,
+                        isAssigned && styles.disabledSemester
+                      ]} 
+                      onPress={() => !isAssigned && setSelectedSemester(sem)}
+                      disabled={isAssigned}
+                    >
+                      <Text style={[
+                        styles.semesterText, 
+                        { color: colors.textLight },
+                        selectedSemester === sem && styles.selectedSemesterText,
+                        isAssigned && styles.disabledSemesterText
+                      ]}>
+                        Sem {sem} {isAssigned ? "(Taken)" : ""}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-              <TouchableOpacity style={[styles.assignSubmitButton, { backgroundColor: colors.primary }]} onPress={assignClassTeacher}>
+              <TouchableOpacity 
+                style={[styles.assignSubmitButton, { backgroundColor: colors.primary }]} 
+                onPress={assignClassTeacher}
+                disabled={!selectedSemester}
+              >
                 <Text style={styles.assignSubmitText}>Assign</Text>
               </TouchableOpacity>
             </View>
@@ -654,17 +708,33 @@ export default function HODDashboard() {
       <Modal transparent visible={showRoleModal} onRequestClose={() => setShowRoleModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Assign Role</Text>
-              <TouchableOpacity onPress={() => setShowRoleModal(false)}><Ionicons name="close" size={24} color={colors.textDark} /></TouchableOpacity>
-            </View>
+            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Assign Role</Text>
+              <TouchableOpacity onPress={() => setShowRoleModal(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </LinearGradient>
             <View style={styles.modalBody}>
               <Text style={[styles.modalLabel, { color: colors.textDark }]}>Teacher: {selectedRoleTeacher?.name}</Text>
               <Text style={[styles.modalLabel, { color: colors.textDark }]}>Select Role:</Text>
               <View style={styles.roleGrid}>
                 {roles.map((role) => (
-                  <TouchableOpacity key={role} style={[styles.roleOption, { backgroundColor: colors.background }, newRole === role && styles.selectedRole]} onPress={() => setNewRole(role)}>
-                    <Text style={[styles.roleText, { color: colors.textLight }, newRole === role && styles.selectedRoleText]}>{role.replace("_", " ").toUpperCase()}</Text>
+                  <TouchableOpacity 
+                    key={role} 
+                    style={[
+                      styles.roleOption, 
+                      { backgroundColor: colors.background },
+                      newRole === role && styles.selectedRole
+                    ]} 
+                    onPress={() => setNewRole(role)}
+                  >
+                    <Text style={[
+                      styles.roleText, 
+                      { color: colors.textLight },
+                      newRole === role && styles.selectedRoleText
+                    ]}>
+                      {role.replace("_", " ").toUpperCase()}
+                    </Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -680,13 +750,29 @@ export default function HODDashboard() {
       <Modal transparent visible={showAddNoteModal} onRequestClose={() => setShowAddNoteModal(false)}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
-              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Add Note</Text>
-              <TouchableOpacity onPress={() => setShowAddNoteModal(false)}><Ionicons name="close" size={24} color={colors.textDark} /></TouchableOpacity>
-            </View>
+            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Add Note</Text>
+              <TouchableOpacity onPress={() => setShowAddNoteModal(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </LinearGradient>
             <View style={styles.modalBody}>
-              <TextInput style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="Note Title" placeholderTextColor={colors.textLight} value={noteTitle} onChangeText={setNoteTitle} />
-              <TextInput style={[styles.input, styles.textArea, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="Note Content" placeholderTextColor={colors.textLight} value={noteContent} onChangeText={setNoteContent} multiline numberOfLines={5} />
+              <TextInput 
+                style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} 
+                placeholder="Note Title" 
+                placeholderTextColor={colors.textLight} 
+                value={noteTitle} 
+                onChangeText={setNoteTitle} 
+              />
+              <TextInput 
+                style={[styles.input, styles.textArea, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} 
+                placeholder="Note Content" 
+                placeholderTextColor={colors.textLight} 
+                value={noteContent} 
+                onChangeText={setNoteContent} 
+                multiline 
+                numberOfLines={5} 
+              />
               <TouchableOpacity style={[styles.assignSubmitButton, { backgroundColor: colors.primary }]} onPress={handleAddNote}>
                 <Text style={styles.assignSubmitText}>Add Note</Text>
               </TouchableOpacity>
@@ -719,6 +805,7 @@ export default function HODDashboard() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  
   profileHeader: {
     paddingTop: 20,
     paddingBottom: 32,
@@ -734,10 +821,10 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   actionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(255,255,255,0.15)",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -820,20 +907,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: "rgba(255,255,255,0.9)",
   },
+  
   statsContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     marginTop: -24,
     gap: 12,
-    marginBottom: 8,
+    marginBottom: 16,
   },
   statCard: {
     flex: 1,
     alignItems: "center",
-    paddingVertical: 16,
+    paddingVertical: 14,
     paddingHorizontal: 8,
-    borderRadius: 20,
+    borderRadius: 16,
     elevation: 2,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
@@ -841,12 +929,12 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   statIconWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   statNumber: {
     fontSize: 20,
@@ -857,67 +945,74 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
   },
+  
   sectionContainer: {
-    paddingHorizontal: 20,
-    marginTop: 24,
+    paddingHorizontal: 16,
+    marginTop: 20,
   },
   lastSection: {
-    marginBottom: 40,
+    marginBottom: 80,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: "600",
     marginBottom: 16,
   },
-  menuGrid: {
+  
+  menuRow: {
     flexDirection: "row",
-    flexWrap: "wrap",
     justifyContent: "space-between",
-    gap: 12,
+    marginBottom: 12,
+  },
+  menuCardWrapper: {
+    // width is set dynamically in the component
   },
   menuCard: {
     borderRadius: 16,
     padding: 12,
-    position: "relative",
-    elevation: 1,
+    alignItems: "center",
+    elevation: 2,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
-    shadowRadius: 2,
+    shadowRadius: 4,
   },
   menuIconWrapper: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
     justifyContent: "center",
     alignItems: "center",
     marginBottom: 8,
   },
   menuCardTitle: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
     marginBottom: 2,
+    textAlign: "center",
   },
   menuCardDesc: {
     fontSize: 10,
+    textAlign: "center",
   },
   menuBadge: {
     position: "absolute",
-    top: 8,
-    right: 8,
+    top: 6,
+    right: 6,
     backgroundColor: "#F44336",
-    borderRadius: 12,
-    minWidth: 20,
-    height: 20,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
   },
   menuBadgeText: {
     color: "#fff",
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "bold",
   },
+  
   notificationItem: {
     flexDirection: "row",
     borderRadius: 16,
@@ -937,6 +1032,7 @@ const styles = StyleSheet.create({
   notificationTitle: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
   notificationMessage: { fontSize: 12, marginBottom: 4 },
   notificationTime: { fontSize: 10 },
+  
   noteItem: {
     flexDirection: "row",
     borderRadius: 16,
@@ -956,26 +1052,37 @@ const styles = StyleSheet.create({
   noteTitle: { fontSize: 14, fontWeight: "600", marginBottom: 4 },
   notePreview: { fontSize: 12, marginBottom: 4 },
   noteMeta: { fontSize: 10 },
+  
+  fab: { position: "absolute", bottom: 20, right: 20, elevation: 6 },
+  fabGradient: { width: 56, height: 56, borderRadius: 28, justifyContent: "center", alignItems: "center" },
+  
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalContent: { borderRadius: 24, width: "90%", maxHeight: "80%" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1 },
-  modalTitle: { fontSize: 18, fontWeight: "bold" },
+  modalContent: { borderRadius: 24, width: "90%", maxHeight: "80%", overflow: "hidden" },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20 },
+  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
   modalBody: { padding: 20 },
   modalLabel: { fontSize: 14, fontWeight: "600", marginBottom: 12 },
+  
   semesterGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 20 },
-  semesterOption: { paddingHorizontal: 15, paddingVertical: 8, borderRadius: 20 },
+  semesterOption: { paddingHorizontal: 15, paddingVertical: 10, borderRadius: 20 },
   selectedSemester: { backgroundColor: "#7384bf" },
+  disabledSemester: { opacity: 0.5, backgroundColor: "#E8F5E9" },
   semesterText: { fontSize: 14 },
   selectedSemesterText: { color: "#fff", fontWeight: "bold" },
+  disabledSemesterText: { color: "#4CAF50" },
+  
   roleGrid: { gap: 10, marginBottom: 20 },
   roleOption: { paddingHorizontal: 15, paddingVertical: 12, borderRadius: 10, alignItems: "center" },
   selectedRole: { backgroundColor: "#7384bf" },
   roleText: { fontSize: 14 },
   selectedRoleText: { color: "#fff", fontWeight: "bold" },
+  
   assignSubmitButton: { paddingVertical: 14, borderRadius: 12, alignItems: "center" },
   assignSubmitText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  
   input: { borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 16, fontSize: 14 },
   textArea: { height: 100, textAlignVertical: "top" },
+  
   confirmModal: { borderRadius: 24, padding: 24, width: "80%", alignItems: "center" },
   confirmTitle: { fontSize: 20, fontWeight: "bold", marginTop: 12 },
   confirmText: { fontSize: 14, textAlign: "center", marginTop: 12, marginBottom: 24 },

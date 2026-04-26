@@ -118,7 +118,7 @@ export default function StudentSignup() {
 
     try {
       // Check if roll number already exists in requests
-      const rollQuery = query(collection(db, "studentRequests"), where("rollNo", "==", rollNo));
+      const rollQuery = query(collection(db, "studentRequests"), where("rollNo", "==", rollNo.trim()));
       const rollSnapshot = await getDocs(rollQuery);
       
       if (!rollSnapshot.empty) {
@@ -127,8 +127,8 @@ export default function StudentSignup() {
         return;
       }
 
-      // Check if student already exists
-      const studentQuery = query(collection(db, "students"), where("rollNo", "==", rollNo));
+      // Check if student already exists in approved students
+      const studentQuery = query(collection(db, "students"), where("rollNo", "==", rollNo.trim()));
       const studentSnapshot = await getDocs(studentQuery);
       
       if (!studentSnapshot.empty) {
@@ -137,13 +137,35 @@ export default function StudentSignup() {
         return;
       }
 
-      // Create student request
+      // Also check boardRollNo uniqueness
+      if (boardRollNo.trim()) {
+        const boardQuery = query(collection(db, "studentRequests"), where("boardRollNo", "==", boardRollNo.trim().toUpperCase()));
+        const boardSnapshot = await getDocs(boardQuery);
+        
+        if (!boardSnapshot.empty) {
+          Alert.alert("Error", "A request with this Board Roll Number already exists");
+          setLoading(false);
+          return;
+        }
+        
+        const boardStudentQuery = query(collection(db, "students"), where("boardRollNo", "==", boardRollNo.trim().toUpperCase()));
+        const boardStudentSnapshot = await getDocs(boardStudentQuery);
+        
+        if (!boardStudentSnapshot.empty) {
+          Alert.alert("Error", "A student with this Board Roll Number already exists");
+          setLoading(false);
+          return;
+        }
+      }
+
+      // Create student request with FIELD NAMES MATCHING TEACHER'S EXPECTATIONS
       await addDoc(collection(db, "studentRequests"), {
-        name: name.trim(),
+        Name: name.trim(),                    // Capital N to match teacher's code
+        name: name.trim(),                    // Lowercase for backward compatibility
         email: email.trim().toLowerCase(),
         rollNo: rollNo.trim(),
         classRollNo: classRollNo.trim(),
-        boardRollNo: boardRollNo.trim(),
+        boardRollNo: boardRollNo.trim().toUpperCase(),
         department,
         semester,
         phone: phone.trim(),
@@ -153,6 +175,7 @@ export default function StudentSignup() {
         role: "student",
         status: "pending",
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
 
       Alert.alert(
@@ -180,8 +203,8 @@ export default function StudentSignup() {
       setPassword("");
       setConfirmPassword("");
       
-    } catch (_error) {
-      console.error("Signup error:", _error);
+    } catch (error) {
+      console.error("Signup error:", error);
       Alert.alert("Error", "Something went wrong. Please try again.");
     } finally {
       setLoading(false);
@@ -203,13 +226,7 @@ export default function StudentSignup() {
       </LinearGradient>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={[
-          styles.formCard,
-          {
-            backgroundColor: colors.card,
-            boxShadow: "0px 2px 4px rgba(0,0,0,0.1)",
-          }
-        ]}>
+        <View style={[styles.formCard, { backgroundColor: colors.card }]}>
           {/* Personal Information Section */}
           <Text style={[styles.sectionTitle, { color: colors.primary }]}>Personal Information</Text>
           
@@ -333,6 +350,7 @@ export default function StudentSignup() {
                 placeholderTextColor={colors.textLight}
                 value={boardRollNo}
                 onChangeText={setBoardRollNo}
+                autoCapitalize="characters"
               />
             </View>
           </View>
@@ -486,7 +504,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     marginBottom: 20,
-    elevation: 3, // Android shadow (kept)
+    elevation: 3,
   },
   sectionTitle: {
     fontSize: 18,

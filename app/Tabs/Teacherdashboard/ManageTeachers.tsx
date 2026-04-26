@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { collection, deleteDoc, doc, getDocs, updateDoc } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDocs, updateDoc, query, where } from "firebase/firestore";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -15,6 +15,7 @@ import {
     TextInput,
     TouchableOpacity,
     View,
+    Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../../config/firebaseConfig.native";
@@ -33,6 +34,18 @@ interface Teacher {
   address?: string;
   labIncharge?: string;
   classTeacherFor?: string;
+}
+
+interface TeacherSubject {
+  id: string;
+  teacherId: string;
+  teacherName: string;
+  subjectId: string;
+  subjectName: string;
+  department: string;
+  semester: number;
+  assignedBy: string;
+  assignedAt: string;
 }
 
 // Helper function to normalize role to array
@@ -66,6 +79,7 @@ const ManageTeachers = () => {
   const { colors, theme, toggleTheme } = useTheme();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<Teacher[]>([]);
+  const [subjectAssignments, setSubjectAssignments] = useState<TeacherSubject[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -82,13 +96,28 @@ const ManageTeachers = () => {
   const [viewingTeacher, setViewingTeacher] = useState<Teacher | null>(null);
   
   const roles = [
-    { id: "teacher", name: "Teacher", icon: "school-outline" as const, color: "#4CAF50" },
-    { id: "class_teacher", name: "Class Teacher", icon: "briefcase-outline" as const, color: "#2196F3" },
-    { id: "hod", name: "HoD", icon: "shield-checkmark-outline" as const, color: "#F44336" },
-    { id: "lab_incharge", name: "Lab Incharge", icon: "flask-outline" as const, color: "#9C27B0" },
+    { id: "teacher", name: "Teacher", icon: "school-outline" as const },
+    { id: "class_teacher", name: "Class Teacher", icon: "briefcase-outline" as const },
+    { id: "hod", name: "HoD", icon: "shield-checkmark-outline" as const },
+    { id: "lab_incharge", name: "Lab Incharge", icon: "flask-outline" as const },
   ];
 
   const semesters = ["1", "2", "3", "4", "5", "6", "7", "8"];
+
+  // Fetch subject assignments for teachers
+  const fetchSubjectAssignments = useCallback(async () => {
+    try {
+      const q = query(collection(db, "teacherSubjects"));
+      const snapshot = await getDocs(q);
+      const assignmentsList = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as TeacherSubject[];
+      setSubjectAssignments(assignmentsList);
+    } catch (error) {
+      console.error("Error fetching subject assignments:", error);
+    }
+  }, []);
 
   const fetchTeachers = useCallback(async () => {
     setLoading(true);
@@ -117,7 +146,8 @@ const ManageTeachers = () => {
 
   useEffect(() => {
     fetchTeachers();
-  }, [fetchTeachers]);
+    fetchSubjectAssignments();
+  }, [fetchTeachers, fetchSubjectAssignments]);
 
   const applyFilters = (data: Teacher[], query: string, role: string) => {
     let filtered = [...data];
@@ -150,6 +180,18 @@ const ManageTeachers = () => {
   const handleAssignRoles = async () => {
     if (!selectedTeacher) return;
 
+    // Validate Lab Incharge
+    if (selectedRoles.includes("lab_incharge") && !selectedLab.trim()) {
+      Alert.alert("Missing Info", "Please enter the lab name for Lab Incharge");
+      return;
+    }
+    
+    // Validate Class Teacher
+    if (selectedRoles.includes("class_teacher") && !selectedSemester) {
+      Alert.alert("Missing Info", "Please select a semester for Class Teacher");
+      return;
+    }
+
     try {
       const teacherRef = doc(db, "teachers", selectedTeacher.id);
       
@@ -158,15 +200,15 @@ const ManageTeachers = () => {
         role: selectedRoles,
       };
       
-      // Lab Incharge - store the lab name as typed
-      if (selectedRoles.includes("lab_incharge") && selectedLab.trim()) {
+      // Lab Incharge
+      if (selectedRoles.includes("lab_incharge")) {
         updateData.labIncharge = selectedLab.trim();
-      } else if (!selectedRoles.includes("lab_incharge")) {
+      } else {
         updateData.labIncharge = null;
       }
       
-      // Class Teacher - only show semester selection when class_teacher is selected
-      if (selectedRoles.includes("class_teacher") && selectedSemester) {
+      // Class Teacher
+      if (selectedRoles.includes("class_teacher")) {
         const existingClassTeacher = teachers.find(t => 
           t.classTeacherFor === selectedSemester && t.id !== selectedTeacher.id
         );
@@ -179,9 +221,8 @@ const ManageTeachers = () => {
           );
           return;
         }
-        
         updateData.classTeacherFor = selectedSemester;
-      } else if (!selectedRoles.includes("class_teacher")) {
+      } else {
         updateData.classTeacherFor = null;
       }
       
@@ -227,15 +268,71 @@ const ManageTeachers = () => {
     );
   };
 
+  const handleRemoveLabIncharge = async (teacher: Teacher) => {
+    Alert.alert(
+      "Remove Lab Incharge",
+      `Remove ${teacher.name} from Lab Incharge?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const teacherRef = doc(db, "teachers", teacher.id);
+              await updateDoc(teacherRef, { labIncharge: null });
+              Alert.alert("Success", `Removed Lab Incharge from ${teacher.name}`);
+              fetchTeachers();
+            } catch (error) {
+              console.error("Error removing lab incharge:", error);
+              Alert.alert("Error", "Failed to remove lab incharge");
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleRemoveSubject = async (subjectAssignment: TeacherSubject, teacherName: string) => {
+    Alert.alert(
+      "Remove Subject",
+      `Remove "${subjectAssignment.subjectName}" from ${teacherName}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteDoc(doc(db, "teacherSubjects", subjectAssignment.id));
+              Alert.alert("Success", `Subject removed from ${teacherName}`);
+              fetchSubjectAssignments();
+            } catch (error) {
+              console.error("Error removing subject:", error);
+              Alert.alert("Error", "Failed to remove subject");
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleDeleteTeacher = async () => {
     if (!teacherToDelete) return;
 
     try {
+      // Also delete all subject assignments for this teacher
+      const teacherSubjects = subjectAssignments.filter(s => s.teacherId === teacherToDelete.id);
+      for (const subject of teacherSubjects) {
+        await deleteDoc(doc(db, "teacherSubjects", subject.id));
+      }
+      
       await deleteDoc(doc(db, "teachers", teacherToDelete.id));
       Alert.alert("Success", `Teacher ${teacherToDelete.name} has been deleted`);
       setDeleteConfirmVisible(false);
       setTeacherToDelete(null);
       fetchTeachers();
+      fetchSubjectAssignments();
     } catch (error) {
       console.error("Delete error:", error);
       Alert.alert("Error", "Failed to delete teacher");
@@ -248,13 +345,22 @@ const ManageTeachers = () => {
   };
 
   const getRoleColor = (roleId: string) => {
-    const roleObj = roles.find(r => r.id === roleId);
-    return roleObj?.color || colors.primary;
+    switch(roleId) {
+      case "teacher": return "#4CAF50";
+      case "class_teacher": return "#2196F3";
+      case "hod": return "#F44336";
+      case "lab_incharge": return "#9C27B0";
+      default: return "#7384BF";
+    }
   };
 
   const getRoleDisplayName = (roleId: string) => {
     const roleObj = roles.find(r => r.id === roleId);
     return roleObj?.name || roleId.replace("_", " ").toUpperCase();
+  };
+
+  const getTeacherSubjects = (teacherId: string) => {
+    return subjectAssignments.filter(assignment => assignment.teacherId === teacherId);
   };
 
   const openRoleModal = (teacher: Teacher) => {
@@ -268,11 +374,9 @@ const ManageTeachers = () => {
   const toggleRole = (roleId: string) => {
     if (selectedRoles.includes(roleId)) {
       setSelectedRoles(selectedRoles.filter(r => r !== roleId));
-      // Clear lab field if removing lab_incharge
       if (roleId === "lab_incharge") {
         setSelectedLab("");
       }
-      // Clear semester if removing class_teacher
       if (roleId === "class_teacher") {
         setSelectedSemester("");
       }
@@ -284,6 +388,8 @@ const ManageTeachers = () => {
   const renderTeacherCard = ({ item }: { item: Teacher }) => {
     const normalizedDept = normalizeDepartment(item.department);
     const teacherRoles = item.role || [];
+    const teacherSubjects = getTeacherSubjects(item.id);
+    const hasTeacherRole = teacherRoles.includes("teacher");
     
     return (
       <View style={[styles.card, { backgroundColor: colors.card }]}>
@@ -298,19 +404,13 @@ const ManageTeachers = () => {
               <View style={styles.badgeRow}>
                 {teacherRoles.map((roleId) => (
                   <View key={roleId} style={[styles.roleBadge, { backgroundColor: getRoleColor(roleId) + "20" }]}>
-                    <Ionicons name={getRoleIcon(roleId)} size={10} color={getRoleColor(roleId)} />
+                    <Ionicons name={getRoleIcon(roleId)} size={12} color={getRoleColor(roleId)} />
                     <Text style={[styles.roleText, { color: getRoleColor(roleId) }]}>
                       {getRoleDisplayName(roleId)}
                     </Text>
                   </View>
                 ))}
               </View>
-              {item.labIncharge && (
-                <View style={styles.labBadge}>
-                  <Ionicons name="flask-outline" size={10} color="#9C27B0" />
-                  <Text style={styles.labText}>Lab: {item.labIncharge}</Text>
-                </View>
-              )}
             </View>
           </View>
           
@@ -357,19 +457,79 @@ const ManageTeachers = () => {
           )}
         </View>
         
-        {item.classTeacherFor && (
-          <View style={styles.classTeacherSection}>
-            <View style={[styles.semesterChip, { backgroundColor: colors.background }]}>
-              <Ionicons name="briefcase-outline" size={12} color="#2196F3" />
-              <Text style={[styles.semesterChipText, { color: colors.textDark }]}>
-                Class Teacher: Semester {item.classTeacherFor}
-              </Text>
+        {/* Assignment Details Section */}
+        <View style={styles.assignmentSection}>
+          {/* Teacher Role - Shows assigned subjects with remove button */}
+          {hasTeacherRole && teacherSubjects.length > 0 && (
+            <View style={[styles.assignmentCard, { backgroundColor: colors.background }]}>
+              <View style={[styles.assignmentIcon, { backgroundColor: "#4CAF50" + "20" }]}>
+                <Ionicons name="school-outline" size={18} color="#4CAF50" />
+              </View>
+              <View style={styles.assignmentContent}>
+                <Text style={[styles.assignmentLabel, { color: colors.textLight }]}>Teaching Subjects</Text>
+                <View style={styles.subjectsContainer}>
+                  {teacherSubjects.map((subject) => (
+                    <View key={subject.id} style={styles.subjectItem}>
+                      <View style={styles.subjectTag}>
+                        <Text style={[styles.subjectTagText, { color: colors.textDark }]}>
+                          {subject.subjectName} (Sem {subject.semester})
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => handleRemoveSubject(subject, item.name)}>
+                        <Ionicons name="close-circle" size={18} color="#F44336" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            </View>
+          )}
+          
+          {/* Teacher Role - No subjects assigned */}
+          {hasTeacherRole && teacherSubjects.length === 0 && (
+            <View style={[styles.assignmentCard, { backgroundColor: colors.background }]}>
+              <View style={[styles.assignmentIcon, { backgroundColor: "#4CAF50" + "20" }]}>
+                <Ionicons name="school-outline" size={18} color="#4CAF50" />
+              </View>
+              <View style={styles.assignmentContent}>
+                <Text style={[styles.assignmentLabel, { color: colors.textLight }]}>Teaching Subjects</Text>
+                <Text style={[styles.noSubjectsText, { color: colors.textLight }]}>No subjects assigned yet</Text>
+              </View>
+            </View>
+          )}
+          
+          {/* Class Teacher Assignment with remove button */}
+          {item.classTeacherFor && (
+            <View style={[styles.assignmentCard, { backgroundColor: colors.background }]}>
+              <View style={[styles.assignmentIcon, { backgroundColor: "#2196F3" + "20" }]}>
+                <Ionicons name="briefcase-outline" size={18} color="#2196F3" />
+              </View>
+              <View style={styles.assignmentContent}>
+                <Text style={[styles.assignmentLabel, { color: colors.textLight }]}>Class Teacher</Text>
+                <Text style={[styles.assignmentValue, { color: colors.textDark }]}>Semester {item.classTeacherFor}</Text>
+              </View>
               <TouchableOpacity onPress={() => handleRemoveClassTeacher(item)}>
-                <Ionicons name="close-circle" size={16} color="#F44336" />
+                <Ionicons name="close-circle" size={22} color="#F44336" />
               </TouchableOpacity>
             </View>
-          </View>
-        )}
+          )}
+          
+          {/* Lab Incharge Assignment with remove button */}
+          {item.labIncharge && (
+            <View style={[styles.assignmentCard, { backgroundColor: colors.background }]}>
+              <View style={[styles.assignmentIcon, { backgroundColor: "#9C27B0" + "20" }]}>
+                <Ionicons name="flask-outline" size={18} color="#9C27B0" />
+              </View>
+              <View style={styles.assignmentContent}>
+                <Text style={[styles.assignmentLabel, { color: colors.textLight }]}>Lab Incharge</Text>
+                <Text style={[styles.assignmentValue, { color: colors.textDark }]}>{item.labIncharge}</Text>
+              </View>
+              <TouchableOpacity onPress={() => handleRemoveLabIncharge(item)}>
+                <Ionicons name="close-circle" size={22} color="#F44336" />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
       </View>
     );
   };
@@ -403,7 +563,10 @@ const ManageTeachers = () => {
       <ScrollView 
         style={styles.content}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={fetchTeachers} colors={[colors.primary]} />
+          <RefreshControl refreshing={refreshing} onRefresh={() => {
+            fetchTeachers();
+            fetchSubjectAssignments();
+          }} colors={[colors.primary]} />
         }
       >
         {/* Search Bar */}
@@ -453,7 +616,7 @@ const ManageTeachers = () => {
                 ]}
                 onPress={() => handleRoleFilter(role.id)}
               >
-                <Ionicons name={role.icon} size={14} color={selectedRole === role.id ? "#fff" : role.color} />
+                <Ionicons name={role.icon} size={14} color={selectedRole === role.id ? "#fff" : getRoleColor(role.id)} />
                 <Text style={[
                   styles.filterChipText,
                   { color: colors.textLight },
@@ -484,7 +647,7 @@ const ManageTeachers = () => {
         )}
       </ScrollView>
 
-      {/* Assign Roles Modal */}
+      {/* Assign Roles Modal - Same as before */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -515,8 +678,8 @@ const ManageTeachers = () => {
                     ]}
                     onPress={() => toggleRole(role.id)}
                   >
-                    <View style={[styles.roleIconContainer, { backgroundColor: role.color + "20" }]}>
-                      <Ionicons name={role.icon} size={24} color={role.color} />
+                    <View style={[styles.roleIconContainer, { backgroundColor: getRoleColor(role.id) + "20" }]}>
+                      <Ionicons name={role.icon} size={24} color={getRoleColor(role.id)} />
                     </View>
                     <Text style={[styles.roleName, { color: colors.textDark }]}>{role.name}</Text>
                     {selectedRoles.includes(role.id) && (
@@ -528,14 +691,14 @@ const ManageTeachers = () => {
                 ))}
               </View>
               
-              {/* Lab Incharge - Text Input (No dropdown, no semester) */}
+              {/* Lab Incharge - ONLY shows Lab Name input */}
               {selectedRoles.includes("lab_incharge") && (
                 <View style={styles.specificField}>
                   <Text style={[styles.fieldLabel, { color: colors.textDark }]}>
-                    Lab Name <Text style={{ fontWeight: "normal", fontSize: 12, color: colors.textLight }}>(required)</Text>
+                    Lab Name <Text style={{ color: "#F44336" }}>*</Text>
                   </Text>
                   <Text style={[styles.fieldHint, { color: colors.textLight }]}>
-                    Enter the lab name ({'e.g., "Computer Lab 1", "Physics Lab", or any custom lab name'})
+                    Enter the lab name ({' e.g., "Computer Lab 1", "Physics Lab"'})
                   </Text>
                   <TextInput
                     style={[styles.labInput, { 
@@ -551,11 +714,11 @@ const ManageTeachers = () => {
                 </View>
               )}
               
-              {/* Class Teacher - Only show semester selection (no lab) */}
+              {/* Class Teacher - ONLY shows Semester selection */}
               {selectedRoles.includes("class_teacher") && (
                 <View style={styles.specificField}>
                   <Text style={[styles.fieldLabel, { color: colors.textDark }]}>
-                    Select Semester <Text style={{ fontWeight: "normal", fontSize: 12, color: colors.textLight }}>(required)</Text>
+                    Select Semester <Text style={{ color: "#F44336" }}>*</Text>
                   </Text>
                   <Text style={[styles.fieldHint, { color: colors.textLight }]}>
                     {selectedTeacher?.classTeacherFor ? 
@@ -619,7 +782,7 @@ const ManageTeachers = () => {
         </View>
       </Modal>
 
-      {/* View Teacher Modal */}
+      {/* View Teacher Modal - Same as before */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -684,6 +847,28 @@ const ManageTeachers = () => {
                     </View>
                   )}
                   
+                  {/* Teacher Subjects */}
+                  {viewingTeacher.role?.includes("teacher") && (
+                    <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
+                      <Ionicons name="book-outline" size={20} color={colors.primary} />
+                      <View>
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Teaching Subjects</Text>
+                        <View style={styles.detailSubjectsContainer}>
+                          {getTeacherSubjects(viewingTeacher.id).map((subject) => (
+                            <View key={subject.id} style={styles.detailSubjectTag}>
+                              <Text style={[styles.detailSubjectText, { color: colors.textDark }]}>
+                                {subject.subjectName} (Sem {subject.semester})
+                              </Text>
+                            </View>
+                          ))}
+                          {getTeacherSubjects(viewingTeacher.id).length === 0 && (
+                            <Text style={[styles.infoValue, { color: colors.textLight }]}>No subjects assigned</Text>
+                          )}
+                        </View>
+                      </View>
+                    </View>
+                  )}
+                  
                   {viewingTeacher.labIncharge && (
                     <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
                       <Ionicons name="flask-outline" size={20} color={colors.primary} />
@@ -734,7 +919,7 @@ const ManageTeachers = () => {
             <Text style={[styles.confirmTitle, { color: colors.textDark }]}>Delete Teacher</Text>
             <Text style={[styles.confirmText, { color: colors.textLight }]}>
               Are you sure you want to delete {teacherToDelete?.name}?
-              This action cannot be undone.
+              This action cannot be undone and will remove all subject assignments.
             </Text>
             <View style={styles.confirmButtons}>
               <TouchableOpacity
@@ -762,7 +947,7 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 10, fontSize: 16 },
   
-  header: { padding: 20, paddingTop: 40, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
+  header: { padding: 20, paddingTop: Platform.OS === 'ios' ? 50 : 40, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
   headerContent: { flexDirection: "row", alignItems: "center" },
   backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center", marginRight: 15 },
   themeToggle: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
@@ -797,8 +982,6 @@ const styles = StyleSheet.create({
   badgeRow: { flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 6 },
   roleBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12, gap: 4 },
   roleText: { fontSize: 10, fontWeight: "600" },
-  labBadge: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 4 },
-  labText: { fontSize: 10, color: "#9C27B0" },
   
   actionButtons: { flexDirection: "row", gap: 10 },
   iconButton: { width: 36, height: 36, borderRadius: 18, justifyContent: "center", alignItems: "center" },
@@ -807,9 +990,18 @@ const styles = StyleSheet.create({
   footerItem: { flexDirection: "row", alignItems: "center", gap: 6 },
   footerText: { fontSize: 12 },
   
-  classTeacherSection: { marginTop: 12 },
-  semesterChip: { flexDirection: "row", alignItems: "center", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, gap: 6, alignSelf: "flex-start" },
-  semesterChipText: { fontSize: 11 },
+  assignmentSection: { marginTop: 12, gap: 8 },
+  assignmentCard: { flexDirection: "row", alignItems: "center", padding: 10, borderRadius: 12, gap: 12 },
+  assignmentIcon: { width: 36, height: 36, borderRadius: 18, justifyContent: "center", alignItems: "center" },
+  assignmentContent: { flex: 1 },
+  assignmentLabel: { fontSize: 10, marginBottom: 2, opacity: 0.7 },
+  assignmentValue: { fontSize: 13, fontWeight: "600" },
+  
+  subjectsContainer: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 4 },
+  subjectItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  subjectTag: { backgroundColor: "rgba(76, 175, 80, 0.1)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14 },
+  subjectTagText: { fontSize: 11, fontWeight: "500" },
+  noSubjectsText: { fontSize: 12, fontStyle: "italic", opacity: 0.6 },
   
   emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
   emptyText: { fontSize: 16, marginTop: 12 },
@@ -865,6 +1057,9 @@ const styles = StyleSheet.create({
   infoItem: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1 },
   infoLabel: { fontSize: 11, fontWeight: "500" },
   infoValue: { fontSize: 14, fontWeight: "500" },
+  detailSubjectsContainer: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
+  detailSubjectTag: { backgroundColor: "rgba(76, 175, 80, 0.1)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14 },
+  detailSubjectText: { fontSize: 12, fontWeight: "500" },
   
   confirmModal: { borderRadius: 24, padding: 24, width: "80%", alignItems: "center" },
   confirmTitle: { fontSize: 20, fontWeight: "bold", marginTop: 12 },

@@ -2,36 +2,39 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    getDocs,
-    query,
-    where,
+  addDoc,
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  where,
+  writeBatch,
 } from "firebase/firestore";
 import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    FlatList,
-    Modal,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  LayoutAnimation,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../../config/firebaseConfig.native";
 import { useAuth } from "../../../context/AuthContext";
 import { useTheme } from "../../../context/ThemeContext";
 
+// ============================================================
+// CLEAN INTERFACES - No subjectId, No credits
+// ============================================================
 interface Subject {
   id: string;
-  subjectId: string;
   name: string;
   department: string;
   semester: number;
@@ -43,7 +46,6 @@ interface Teacher {
   email: string;
   department: string;
   role: string;
-  status?: string;
 }
 
 interface TeacherSubject {
@@ -58,48 +60,44 @@ interface TeacherSubject {
   assignedAt: string;
 }
 
-export default function AssignSubjects() {
+const SEMESTERS = [1, 2, 3, 4, 5, 6];
+
+export default function SubjectManagementModule() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   const { colors } = useTheme();
 
+  // State
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loadingSubjects, setLoadingSubjects] = useState(false);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [loadingTeachers, setLoadingTeachers] = useState(false);
   const [assignments, setAssignments] = useState<TeacherSubject[]>([]);
-  const [loadingAssignments, setLoadingAssignments] = useState(false);
-
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"subjects" | "assignments">("subjects");
   const [refreshing, setRefreshing] = useState(false);
 
+  // Modal states
   const [subjectModalVisible, setSubjectModalVisible] = useState(false);
-  const [newSubject, setNewSubject] = useState({
-    subjectId: "",
-    name: "",
-    semester: "",
-  });
-
+  const [subjectName, setSubjectName] = useState("");
+  const [subjectSemester, setSubjectSemester] = useState("");
   const [assignModalVisible, setAssignModalVisible] = useState(false);
   const [selectedTeacher, setSelectedTeacher] = useState<Teacher | null>(null);
-  const [availableSubjects, setAvailableSubjects] = useState<Subject[]>([]);
 
-  // ---------- Data fetching ----------
+  // ============================================================
+  // FETCH DATA
+  // ============================================================
   const fetchSubjects = useCallback(async () => {
     if (!user?.department) return;
     setLoadingSubjects(true);
     try {
       const q = query(collection(db, "subjects"), where("department", "==", user.department));
       const snapshot = await getDocs(q);
-      const subjectsList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Subject[];
-      subjectsList.sort((a, b) => a.semester - b.semester || a.subjectId.localeCompare(b.subjectId));
-      setSubjects(subjectsList);
-    } catch (error: any) {
-      console.error("Fetch subjects error:", error);
-      Alert.alert("Error", `Failed to load subjects: ${error.message}`);
+      const list = snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Subject));
+      list.sort((a, b) => a.semester - b.semester || a.name.localeCompare(b.name));
+      setSubjects(list);
+    } catch {
+      Alert.alert("Error", "Failed to load subjects");
     } finally {
       setLoadingSubjects(false);
     }
@@ -111,15 +109,10 @@ export default function AssignSubjects() {
     try {
       const q = query(collection(db, "teachers"), where("department", "==", user.department));
       const snapshot = await getDocs(q);
-      let teachersList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Teacher[];
-      teachersList = teachersList.filter(teacher => teacher.role !== "hod");
-      setTeachers(teachersList);
-    } catch (error: any) {
-      console.error("Fetch teachers error:", error);
-      Alert.alert("Error", `Failed to load teachers: ${error.message}`);
+      // ALL teachers including HOD
+      setTeachers(snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as Teacher)));
+    } catch {
+      Alert.alert("Error", "Failed to load teachers");
     } finally {
       setLoadingTeachers(false);
     }
@@ -127,144 +120,166 @@ export default function AssignSubjects() {
 
   const fetchAssignments = useCallback(async () => {
     if (!user?.department) return;
-    setLoadingAssignments(true);
     try {
       const q = query(collection(db, "teacherSubjects"), where("department", "==", user.department));
       const snapshot = await getDocs(q);
-      const assignmentsList = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as TeacherSubject[];
-      setAssignments(assignmentsList);
-    } catch (error: any) {
-      console.error("Fetch assignments error:", error);
-      Alert.alert("Error", `Failed to load assignments: ${error.message}`);
-    } finally {
-      setLoadingAssignments(false);
+      setAssignments(snapshot.docs.map((d) => ({ id: d.id, ...d.data() } as TeacherSubject)));
+    } catch {
+      Alert.alert("Error", "Failed to load assignments");
     }
   }, [user?.department]);
 
   const fetchAllData = useCallback(async () => {
+    setLoading(true);
     await Promise.all([fetchSubjects(), fetchTeachers(), fetchAssignments()]);
+    setLoading(false);
   }, [fetchSubjects, fetchTeachers, fetchAssignments]);
 
-  // ---------- Effects ----------
+  // ============================================================
+  // EFFECTS
+  // ============================================================
   useEffect(() => {
-    if (!authLoading && (!user || user.role !== "hod")) {
-      Alert.alert("Access Denied", "Only HOD can manage subjects and assignments.");
+    if (!authLoading && user?.role !== "hod") {
+      Alert.alert("Access Denied", "Only HOD can manage this page.");
       router.back();
-    }
-  }, [user, authLoading, router]);
-
-  useEffect(() => {
-    if (user?.department) {
-      fetchAllData();
-    }
-  }, [user, fetchAllData]);
-
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchAllData().finally(() => setRefreshing(false));
-  }, [fetchAllData]);
-
-  // ---------- Subject Management ----------
-  const handleAddSubject = async () => {
-    if (!newSubject.subjectId || !newSubject.name || !newSubject.semester) {
-      Alert.alert("Missing Fields", "Please fill all subject details.");
       return;
     }
-    const semesterNum = parseInt(newSubject.semester);
-    if (isNaN(semesterNum) || semesterNum < 1 || semesterNum > 6) {
-      Alert.alert("Invalid Semester", "Semester must be between 1 and 6.");
+    if (user?.department) fetchAllData();
+  }, [user, authLoading, fetchAllData, router]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchAllData();
+    setRefreshing(false);
+  }, [fetchAllData]);
+
+  // ============================================================
+  // HELPERS
+  // ============================================================
+  const getAssignedTeacher = (subjectId: string) =>
+    assignments.find((a) => a.subjectId === subjectId);
+
+  // ============================================================
+  // ADD SUBJECT - ONLY Name + Semester
+  // ============================================================
+  const handleAddSubject = async () => {
+    if (!subjectName.trim()) {
+      Alert.alert("Required", "Please enter subject name.");
+      return;
+    }
+    if (!subjectSemester) {
+      Alert.alert("Required", "Please select a semester.");
+      return;
+    }
+
+    const sem = parseInt(subjectSemester);
+    if (!SEMESTERS.includes(sem)) {
+      Alert.alert("Invalid", "Semester must be between 1 and 6.");
+      return;
+    }
+
+    const duplicate = subjects.some(
+      (s) => s.name.toLowerCase() === subjectName.trim().toLowerCase() && s.semester === sem
+    );
+    if (duplicate) {
+      Alert.alert("Duplicate", "This subject already exists in this semester.");
       return;
     }
 
     try {
-      const existing = subjects.find(
-        (s) => s.subjectId === newSubject.subjectId && s.department === user?.department
-      );
-      if (existing) {
-        Alert.alert("Duplicate", "Subject ID already exists in this department.");
+      await addDoc(collection(db, "subjects"), {
+        name: subjectName.trim(),
+        department: user?.department,
+        semester: sem,
+      });
+
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setSubjectModalVisible(false);
+      setSubjectName("");
+      setSubjectSemester("");
+      await fetchSubjects();
+      Alert.alert("Success", "Subject added successfully!");
+    } catch {
+      Alert.alert("Error", "Failed to add subject.");
+    }
+  };
+
+  // ============================================================
+  // DELETE SUBJECT
+  // ============================================================
+  const handleDeleteSubject = async (subject: Subject) => {
+    const assigned = getAssignedTeacher(subject.id);
+    const msg = assigned
+      ? `"${subject.name}" is assigned to ${assigned.teacherName}. Delete anyway?`
+      : `Delete "${subject.name}" permanently?`;
+
+    Alert.alert("Delete Subject", msg, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            const batch = writeBatch(db);
+            if (assigned) batch.delete(doc(db, "teacherSubjects", assigned.id));
+            batch.delete(doc(db, "subjects", subject.id));
+            await batch.commit();
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            await fetchAllData();
+            Alert.alert("Deleted", "Subject removed.");
+          } catch {
+            Alert.alert("Error", "Failed to delete.");
+          }
+        },
+      },
+    ]);
+  };
+
+  // ============================================================
+  // ASSIGN SUBJECT
+  // ============================================================
+  const handleAssignSubject = async (subject: Subject) => {
+    if (!selectedTeacher) return;
+
+    const existing = getAssignedTeacher(subject.id);
+
+    if (existing) {
+      if (existing.teacherId === selectedTeacher.id) {
+        Alert.alert("Already Assigned", "This subject is already assigned to this teacher.");
         return;
       }
 
-      await addDoc(collection(db, "subjects"), {
-        subjectId: newSubject.subjectId,
-        name: newSubject.name,
-        department: user?.department,
-        semester: semesterNum,
-      });
-      Alert.alert("Success", "Subject added successfully.");
-      setSubjectModalVisible(false);
-      setNewSubject({ subjectId: "", name: "", semester: "" });
-      fetchSubjects();
-    } catch (error: any) {
-      console.error("Add subject error:", error);
-      Alert.alert("Error", `Failed to add subject: ${error.message}`);
-    }
-  };
-
-  const handleDeleteSubject = (subject: Subject) => {
-    Alert.alert(
-      "Delete Subject",
-      `Delete "${subject.name}"? This will also remove all teacher assignments.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            try {
-              const assignmentsQuery = query(
-                collection(db, "teacherSubjects"),
-                where("subjectId", "==", subject.id)
-              );
-              const assignmentsSnapshot = await getDocs(assignmentsQuery);
-              for (const assignmentDoc of assignmentsSnapshot.docs) {
-                await deleteDoc(doc(db, "teacherSubjects", assignmentDoc.id));
-              }
-              await deleteDoc(doc(db, "subjects", subject.id));
-              Alert.alert("Deleted", "Subject and assignments removed.");
-              await fetchAllData();
-            } catch (error: any) {
-              console.error("Delete subject error:", error);
-              Alert.alert("Delete Failed", `Error: ${error.message}`);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  // ---------- Assignment Management ----------
-  const openAssignModal = (teacher: Teacher) => {
-    const assignedSubjectIds = assignments
-      .filter((a) => a.teacherId === teacher.id)
-      .map((a) => a.subjectId);
-    
-    const available = subjects.filter((s) => !assignedSubjectIds.includes(s.id));
-    
-    setAvailableSubjects(available);
-    setSelectedTeacher(teacher);
-    setAssignModalVisible(true);
-  };
-
-  const isSubjectAlreadyAssigned = (subjectId: string): boolean => {
-    return assignments.some((a) => a.subjectId === subjectId);
-  };
-
-  const handleAssignSubject = async (subject: Subject) => {
-    if (!selectedTeacher) return;
-    
-    if (isSubjectAlreadyAssigned(subject.id)) {
       Alert.alert(
-        "Subject Already Assigned",
-        `"${subject.name}" is already assigned to another teacher.\n\nA subject can only be assigned to one teacher at a time.`,
-        [{ text: "OK" }]
+        "Reassign?",
+        `"${subject.name}" is currently assigned to ${existing.teacherName}.\n\nReassign to ${selectedTeacher.name}?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Reassign",
+            onPress: async () => {
+              await deleteDoc(doc(db, "teacherSubjects", existing.id));
+              await addDoc(collection(db, "teacherSubjects"), {
+                teacherId: selectedTeacher.id,
+                teacherName: selectedTeacher.name,
+                subjectId: subject.id,
+                subjectName: subject.name,
+                department: user?.department,
+                semester: subject.semester,
+                assignedBy: user?.name || user?.email,
+                assignedAt: new Date().toISOString(),
+              });
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setAssignModalVisible(false);
+              setSelectedTeacher(null);
+              await fetchAssignments();
+              Alert.alert("Success", `${subject.name} reassigned to ${selectedTeacher.name}`);
+            },
+          },
+        ]
       );
       return;
     }
-    
+
     try {
       await addDoc(collection(db, "teacherSubjects"), {
         teacherId: selectedTeacher.id,
@@ -276,16 +291,19 @@ export default function AssignSubjects() {
         assignedBy: user?.name || user?.email,
         assignedAt: new Date().toISOString(),
       });
-      Alert.alert("Assigned", `${subject.name} assigned to ${selectedTeacher.name}`);
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
       setAssignModalVisible(false);
       setSelectedTeacher(null);
       await fetchAssignments();
-    } catch (error: any) {
-      console.error("Assign subject error:", error);
-      Alert.alert("Error", `Failed to assign subject: ${error.message}`);
+      Alert.alert("Success", `${subject.name} assigned to ${selectedTeacher.name}`);
+    } catch {
+      Alert.alert("Error", "Failed to assign subject.");
     }
   };
 
+  // ============================================================
+  // REMOVE ASSIGNMENT
+  // ============================================================
   const handleRemoveAssignment = async (assignment: TeacherSubject) => {
     Alert.alert(
       "Remove Assignment",
@@ -296,341 +314,502 @@ export default function AssignSubjects() {
           text: "Remove",
           style: "destructive",
           onPress: async () => {
-            try {
-              await deleteDoc(doc(db, "teacherSubjects", assignment.id));
-              Alert.alert("Success", "Assignment removed.");
-              await fetchAssignments();
-            } catch (error: any) {
-              console.error("Remove assignment error:", error);
-              Alert.alert("Remove Failed", `Error: ${error.message}`);
-            }
+            await deleteDoc(doc(db, "teacherSubjects", assignment.id));
+            LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+            await fetchAssignments();
+            Alert.alert("Success", "Assignment removed.");
           },
         },
       ]
     );
   };
 
-  // ---------- Render Helpers ----------
-  const renderSubjectItem = ({ item }: { item: Subject }) => {
-    const isAssigned = assignments.some((a) => a.subjectId === item.id);
-    const assignedTo = assignments.find((a) => a.subjectId === item.id)?.teacherName;
-    
+  // ============================================================
+  // LOADING
+  // ============================================================
+  if (authLoading || loading) {
     return (
-      <View style={[styles.card, { backgroundColor: colors.card }]}>
-        <View style={styles.cardContent}>
-          <View style={styles.subjectHeader}>
-            <Text style={[styles.subjectCode, { color: colors.primary }]}>{item.subjectId}</Text>
-            <Text style={[styles.subjectName, { color: colors.textDark }]}>{item.name}</Text>
-          </View>
-          <View style={styles.detailChip}>
-            <Ionicons name="calendar-outline" size={14} color={colors.primary} />
-            <Text style={[styles.detailText, { color: colors.textLight }]}>Semester {item.semester}</Text>
-          </View>
-          {isAssigned && (
-            <View style={styles.assignedBadge}>
-              <Ionicons name="checkmark-circle" size={12} color="#4CAF50" />
-              <Text style={styles.assignedBadgeText}>Assigned to {assignedTo}</Text>
-            </View>
-          )}
-        </View>
-        <TouchableOpacity onPress={() => handleDeleteSubject(item)} style={styles.deleteButton}>
-          <Ionicons name="trash-outline" size={20} color="#F44336" />
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
-  const renderTeacherItem = ({ item }: { item: Teacher }) => {
-    const teacherAssignments = assignments.filter((a) => a.teacherId === item.id);
-    return (
-      <View style={[styles.teacherCard, { backgroundColor: colors.card }]}>
-        <View style={styles.teacherHeader}>
-          <View style={styles.teacherInfo}>
-            <Text style={[styles.teacherName, { color: colors.textDark }]}>{item.name}</Text>
-            <Text style={[styles.teacherEmail, { color: colors.textLight }]}>{item.email}</Text>
-          </View>
-          <TouchableOpacity
-            style={[styles.assignButton, { backgroundColor: `${colors.primary}10` }]}
-            onPress={() => openAssignModal(item)}
-          >
-            <Ionicons name="add-circle-outline" size={22} color="#4CAF50" />
-            <Text style={[styles.assignButtonText, { color: "#4CAF50" }]}>Assign</Text>
-          </TouchableOpacity>
-        </View>
-        {teacherAssignments.length > 0 && (
-          <View style={styles.assignedList}>
-            <Text style={[styles.assignedTitle, { color: colors.textLight }]}>Assigned Subjects:</Text>
-            {teacherAssignments.map((ass) => (
-              <View key={ass.id} style={styles.assignedItem}>
-                <View style={styles.assignedSubjectInfo}>
-                  <Text style={[styles.assignedSubject, { color: colors.textDark }]}>
-                    {ass.subjectName}
-                  </Text>
-                  <Text style={[styles.assignedSemester, { color: colors.textLight }]}>
-                    Sem {ass.semester}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.removeButton}
-                  onPress={() => handleRemoveAssignment(ass)}
-                >
-                  <Text style={styles.removeButtonText}>Remove</Text>
-                </TouchableOpacity>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  if (authLoading || (!user && !authLoading)) {
-    return (
-      <View style={styles.loadingContainer}>
+      <SafeAreaView className="flex-1 bg-gray-50 dark:bg-slate-900 justify-center items-center">
         <ActivityIndicator size="large" color={colors.primary} />
-      </View>
+        <Text className="text-gray-400 dark:text-gray-500 mt-4">Loading...</Text>
+      </SafeAreaView>
     );
   }
 
+  if (!user || user.role !== "hod") return null;
+
+  // ============================================================
+  // MAIN UI
+  // ============================================================
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Subject Manager</Text>
-        </View>
-        <Text style={styles.headerSubtitle}>{user?.department} Department</Text>
-      </LinearGradient>
-
-      <View style={[styles.tabBar, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "subjects" && styles.activeTab]}
-          onPress={() => setActiveTab("subjects")}
-        >
-          <Ionicons name="book-outline" size={20} color={activeTab === "subjects" ? colors.primary : colors.textLight} />
-          <Text style={[styles.tabText, { color: activeTab === "subjects" ? colors.primary : colors.textLight }]}>Subjects</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === "assignments" && styles.activeTab]}
-          onPress={() => setActiveTab("assignments")}
-        >
-          <Ionicons name="people-outline" size={20} color={activeTab === "assignments" ? colors.primary : colors.textLight} />
-          <Text style={[styles.tabText, { color: activeTab === "assignments" ? colors.primary : colors.textLight }]}>Teachers</Text>
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView
-        style={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
+    <SafeAreaView className="flex-1 bg-gray-50 dark:bg-slate-900">
+      {/* ===== HEADER ===== */}
+      <LinearGradient
+        colors={[colors.primary, colors.secondary]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        className="px-5 pt-14 pb-6 rounded-b-3xl"
       >
-        {activeTab === "subjects" && (
-          <>
-            <TouchableOpacity style={[styles.addButton, { backgroundColor: "#4CAF50" }]} onPress={() => setSubjectModalVisible(true)}>
-              <Ionicons name="add" size={22} color="#fff" />
-              <Text style={styles.addButtonText}>New Subject</Text>
-            </TouchableOpacity>
-            {loadingSubjects ? (
-              <ActivityIndicator style={styles.loader} color={colors.primary} />
-            ) : subjects.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="book-outline" size={64} color={colors.textLight} />
-                <Text style={[styles.emptyText, { color: colors.textLight }]}>No subjects found</Text>
-                <Text style={[styles.emptySubtext, { color: colors.textLight }]}>Tap + to add your first subject</Text>
-              </View>
-            ) : (
-              <FlatList data={subjects} renderItem={renderSubjectItem} keyExtractor={(item) => item.id} scrollEnabled={false} />
-            )}
-          </>
-        )}
-        {activeTab === "assignments" && (
-          <>
-            {loadingTeachers || loadingAssignments ? (
-              <ActivityIndicator style={styles.loader} color={colors.primary} />
-            ) : teachers.length === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="people-outline" size={64} color={colors.textLight} />
-                <Text style={[styles.emptyText, { color: colors.textLight }]}>No teachers found</Text>
-                <Text style={[styles.emptySubtext, { color: colors.textLight }]}>Add teachers to your department first</Text>
-              </View>
-            ) : (
-              <FlatList data={teachers} renderItem={renderTeacherItem} keyExtractor={(item) => item.id} scrollEnabled={false} />
-            )}
-          </>
-        )}
-      </ScrollView>
-
-      {/* Add Subject Modal - CREDITS REMOVED */}
-      <Modal visible={subjectModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>New Subject</Text>
-              <TouchableOpacity onPress={() => setSubjectModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </LinearGradient>
-            <ScrollView style={styles.modalBody}>
-              <Text style={[styles.inputLabel, { color: colors.textDark }]}>Subject Code</Text>
-              <TextInput 
-                style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} 
-                placeholder="e.g., CS101" 
-                placeholderTextColor={colors.textLight} 
-                value={newSubject.subjectId} 
-                onChangeText={(text) => setNewSubject({ ...newSubject, subjectId: text })} 
-              />
-              
-              <Text style={[styles.inputLabel, { color: colors.textDark }]}>Subject Name</Text>
-              <TextInput 
-                style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} 
-                placeholder="e.g., Data Structures" 
-                placeholderTextColor={colors.textLight} 
-                value={newSubject.name} 
-                onChangeText={(text) => setNewSubject({ ...newSubject, name: text })} 
-              />
-              
-              <Text style={[styles.inputLabel, { color: colors.textDark }]}>Semester (1-6)</Text>
-              <TextInput 
-                style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} 
-                placeholder="e.g., 3" 
-                keyboardType="numeric" 
-                value={newSubject.semester} 
-                onChangeText={(text) => setNewSubject({ ...newSubject, semester: text })} 
-              />
-              
-              <TouchableOpacity style={[styles.submitButton, { backgroundColor: "#4CAF50" }]} onPress={handleAddSubject}>
-                <Text style={styles.submitButtonText}>Create Subject</Text>
-              </TouchableOpacity>
-            </ScrollView>
+        <View className="flex-row items-center">
+          <Pressable
+            onPress={() => router.back()}
+            className="w-10 h-10 rounded-full bg-white/20 items-center justify-center mr-4"
+            android_ripple={{ color: "#ffffff30", borderless: true }}
+          >
+            <Ionicons
+              name={Platform.OS === "ios" ? "chevron-back" : "arrow-back"}
+              size={22}
+              color="#fff"
+            />
+          </Pressable>
+          <View className="flex-1">
+            <Text className="text-xl font-bold text-white">Subject Manager</Text>
+            <Text className="text-sm text-white/80 mt-0.5">{user.department} Department</Text>
           </View>
         </View>
+      </LinearGradient>
+
+      {/* ===== TAB BAR ===== */}
+      <View className="flex-row mx-4 -mt-6 bg-white dark:bg-slate-800 rounded-2xl p-1.5 shadow-lg shadow-black/10 z-10">
+        {(["subjects", "assignments"] as const).map((tab) => (
+          <Pressable
+            key={tab}
+            onPress={() => {
+              LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+              setActiveTab(tab);
+            }}
+            className={`flex-1 flex-row items-center justify-center py-3 rounded-xl gap-2 ${
+              activeTab === tab ? "bg-blue-50 dark:bg-blue-900/30" : ""
+            }`}
+            android_ripple={{ color: `${colors.primary}10` }}
+          >
+            <Ionicons
+              name={tab === "subjects" ? "book-outline" : "people-outline"}
+              size={18}
+              color={activeTab === tab ? colors.primary : "#9CA3AF"}
+            />
+            <Text
+              className={`text-sm font-semibold ${
+                activeTab === tab
+                  ? "text-blue-600 dark:text-blue-400"
+                  : "text-gray-400 dark:text-gray-500"
+              }`}
+            >
+              {tab === "subjects" ? "Subjects" : "Teachers"}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* ===== CONTENT ===== */}
+      <ScrollView
+        className="flex-1 px-4 pt-5"
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
+          />
+        }
+      >
+        {/* ===== SUBJECTS TAB ===== */}
+        {activeTab === "subjects" && (
+          <>
+            <Pressable
+              onPress={() => setSubjectModalVisible(true)}
+              className="flex-row items-center justify-center bg-green-500 py-3.5 rounded-2xl mb-4 gap-2"
+              android_ripple={{ color: "#ffffff20" }}
+            >
+              <Ionicons name="add-circle" size={20} color="#fff" />
+              <Text className="text-white font-semibold text-base">Add New Subject</Text>
+            </Pressable>
+
+            {loadingSubjects ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 80 }} />
+            ) : subjects.length === 0 ? (
+              <View className="items-center py-20">
+                <View className="w-24 h-24 rounded-full bg-blue-50 dark:bg-blue-900/20 items-center justify-center mb-4">
+                  <Ionicons name="book-outline" size={48} color={colors.primary} />
+                </View>
+                <Text className="text-gray-400 dark:text-gray-500 text-lg font-medium">
+                  No Subjects Yet
+                </Text>
+                <Text className="text-gray-400 dark:text-gray-500 text-sm mt-2 text-center px-8">
+                  Start by adding subjects for {user.department} department
+                </Text>
+              </View>
+            ) : (
+              subjects.map((item) => {
+                const assigned = getAssignedTeacher(item.id);
+                const isHod = assigned ? teachers.find(t => t.id === assigned.teacherId)?.role === "hod" : false;
+                return (
+                  <View
+                    key={item.id}
+                    className="bg-white dark:bg-slate-800 rounded-2xl p-4 mb-3 flex-row items-center shadow-sm border border-gray-100 dark:border-gray-700"
+                  >
+                    <View className="flex-1">
+                      {/* Only Name */}
+                      <Text className="text-base font-semibold text-gray-900 dark:text-gray-100 mb-2">
+                        {item.name}
+                      </Text>
+                      <View className="flex-row items-center gap-2 flex-wrap">
+                        {/* Only Semester */}
+                        <View className="flex-row items-center bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 rounded-full">
+                          <Ionicons name="calendar-outline" size={12} color={colors.primary} />
+                          <Text className="text-xs text-blue-600 dark:text-blue-400 ml-1 font-medium">
+                            Semester {item.semester}
+                          </Text>
+                        </View>
+                        {/* Assigned Status */}
+                        {assigned ? (
+                          <View className="flex-row items-center bg-green-50 dark:bg-green-900/30 px-2.5 py-1 rounded-full">
+                            <Ionicons name="person" size={12} color="#10B981" />
+                            <Text className="text-xs text-green-600 dark:text-green-400 ml-1 font-medium">
+                              {assigned.teacherName}{isHod ? " (HOD)" : ""}
+                            </Text>
+                          </View>
+                        ) : (
+                          <View className="flex-row items-center bg-orange-50 dark:bg-orange-900/20 px-2.5 py-1 rounded-full">
+                            <Ionicons name="alert-circle-outline" size={12} color="#F59E0B" />
+                            <Text className="text-xs text-orange-600 dark:text-orange-400 ml-1 font-medium">
+                              Unassigned
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    </View>
+                    <Pressable
+                      onPress={() => handleDeleteSubject(item)}
+                      className="w-10 h-10 rounded-full bg-red-50 dark:bg-red-900/20 items-center justify-center ml-3"
+                      android_ripple={{ color: "#F4433620", borderless: true }}
+                    >
+                      <Ionicons name="trash-outline" size={20} color="#EF4444" />
+                    </Pressable>
+                  </View>
+                );
+              })
+            )}
+          </>
+        )}
+
+        {/* ===== TEACHERS TAB ===== */}
+        {activeTab === "assignments" && (
+          <>
+            {loadingTeachers ? (
+              <ActivityIndicator size="large" color={colors.primary} style={{ marginTop: 80 }} />
+            ) : teachers.length === 0 ? (
+              <View className="items-center py-20">
+                <View className="w-24 h-24 rounded-full bg-blue-50 dark:bg-blue-900/20 items-center justify-center mb-4">
+                  <Ionicons name="people-outline" size={48} color={colors.primary} />
+                </View>
+                <Text className="text-gray-400 dark:text-gray-500 text-lg font-medium">
+                  No Teachers Found
+                </Text>
+              </View>
+            ) : (
+              teachers.map((item) => {
+                const teacherAssignments = assignments.filter((a) => a.teacherId === item.id);
+                const isHod = item.role === "hod";
+                return (
+                  <View
+                    key={item.id}
+                    className="bg-white dark:bg-slate-800 rounded-2xl p-4 mb-3 shadow-sm border border-gray-100 dark:border-gray-700"
+                  >
+                    <View className="flex-row justify-between items-start">
+                      <View className="flex-1">
+                        <View className="flex-row items-center gap-2">
+                          <Text className="text-base font-bold text-gray-900 dark:text-gray-100">
+                            {item.name}
+                          </Text>
+                          {isHod && (
+                            <View className="bg-purple-100 dark:bg-purple-900/30 px-2 py-0.5 rounded-full">
+                              <Text className="text-xs font-bold text-purple-600 dark:text-purple-400">
+                                HOD
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          {item.email}
+                        </Text>
+                      </View>
+                      <Pressable
+                        onPress={() => {
+                          setSelectedTeacher(item);
+                          setAssignModalVisible(true);
+                        }}
+                        className="flex-row items-center bg-blue-500 px-4 py-2 rounded-full"
+                        android_ripple={{ color: "#ffffff30" }}
+                      >
+                        <Ionicons name="add" size={16} color="#fff" />
+                        <Text className="text-white text-xs font-semibold ml-1">Assign</Text>
+                      </Pressable>
+                    </View>
+
+                    {teacherAssignments.length > 0 ? (
+                      <View className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+                        <Text className="text-xs font-semibold text-gray-400 dark:text-gray-500 mb-3">
+                          ASSIGNED SUBJECTS ({teacherAssignments.length})
+                        </Text>
+                        {teacherAssignments.map((ass) => (
+                          <View
+                            key={ass.id}
+                            className="flex-row justify-between items-center py-2.5 bg-gray-50 dark:bg-slate-700/50 rounded-xl px-3 mb-2"
+                          >
+                            <View className="flex-1">
+                              <Text className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                                {ass.subjectName}
+                              </Text>
+                              <Text className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                                Semester {ass.semester}
+                              </Text>
+                            </View>
+                            <Pressable
+                              onPress={() => handleRemoveAssignment(ass)}
+                              className="px-3 py-1.5 rounded-full bg-red-50 dark:bg-red-900/20"
+                              android_ripple={{ color: "#F4433620" }}
+                            >
+                              <Text className="text-xs font-semibold text-red-500">Remove</Text>
+                            </Pressable>
+                          </View>
+                        ))}
+                      </View>
+                    ) : (
+                      <View className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                        <Text className="text-xs text-gray-400 dark:text-gray-500 italic">
+                          No subjects assigned yet
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                );
+              })
+            )}
+          </>
+        )}
+        <View className="h-8" />
+      </ScrollView>
+
+      {/* ============================================================ */}
+      {/* ADD SUBJECT MODAL - ONLY 2 FIELDS: Name + Semester */}
+      {/* ============================================================ */}
+      <Modal
+        visible={subjectModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSubjectModalVisible(false)}
+      >
+        <Pressable
+          className="flex-1 bg-black/50 justify-end"
+          onPress={() => setSubjectModalVisible(false)}
+        >
+          <Pressable
+            className="bg-white dark:bg-slate-800 rounded-t-3xl max-h-[85%]"
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View className="items-center pt-3 pb-2">
+              <View className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+            </View>
+            <View className="flex-row justify-between items-center px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+              <Text className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                Add New Subject
+              </Text>
+              <Pressable
+                onPress={() => setSubjectModalVisible(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 items-center justify-center"
+              >
+                <Ionicons name="close" size={20} color={colors.textLight} />
+              </Pressable>
+            </View>
+
+            <ScrollView className="px-5 pt-4 pb-8" showsVerticalScrollIndicator={false}>
+              {/* SUBJECT NAME ONLY */}
+              <Text className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
+                Subject Name *
+              </Text>
+              <TextInput
+                className="border-2 border-gray-200 dark:border-gray-600 rounded-xl px-4 py-3.5 text-base text-gray-900 dark:text-gray-100 bg-gray-50 dark:bg-slate-700"
+                placeholder="e.g., Data Structures & Algorithms"
+                placeholderTextColor={colors.textLight}
+                value={subjectName}
+                onChangeText={setSubjectName}
+                autoFocus
+              />
+
+              {/* SEMESTER SELECTOR ONLY */}
+              <Text className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3 mt-6">
+                Semester *
+              </Text>
+              <View className="flex-row flex-wrap gap-3">
+                {SEMESTERS.map((sem) => (
+                  <Pressable
+                    key={sem}
+                    onPress={() => setSubjectSemester(sem.toString())}
+                    className={`w-[30%] py-3 rounded-xl border-2 ${
+                      subjectSemester === sem.toString()
+                        ? "bg-blue-500 border-blue-500"
+                        : "border-gray-200 dark:border-gray-600 bg-white dark:bg-slate-700"
+                    }`}
+                    android_ripple={{
+                      color: subjectSemester === sem.toString() ? "#ffffff30" : `${colors.primary}20`,
+                    }}
+                  >
+                    <Text
+                      className={`text-center text-sm font-bold ${
+                        subjectSemester === sem.toString()
+                          ? "text-white"
+                          : "text-gray-600 dark:text-gray-400"
+                      }`}
+                    >
+                      Sem {sem}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* SUBMIT BUTTON */}
+              <Pressable
+                onPress={handleAddSubject}
+                className={`py-4 rounded-2xl items-center mt-8 ${
+                  !subjectName.trim() || !subjectSemester
+                    ? "bg-gray-300 dark:bg-gray-600"
+                    : "bg-green-500"
+                }`}
+                android_ripple={{ color: "#ffffff20" }}
+                disabled={!subjectName.trim() || !subjectSemester}
+              >
+                <Text className="text-white font-bold text-base">Create Subject</Text>
+              </Pressable>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
       </Modal>
 
-      {/* Assign Subject Modal */}
-      <Modal visible={assignModalVisible} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Assign to {selectedTeacher?.name?.split(" ")[0]}</Text>
-              <TouchableOpacity onPress={() => setAssignModalVisible(false)}>
-                <Ionicons name="close" size={24} color="#fff" />
-              </TouchableOpacity>
-            </LinearGradient>
-            <ScrollView style={styles.modalBody}>
-              {availableSubjects.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="checkmark-circle" size={48} color="#4CAF50" />
-                  <Text style={[styles.emptyText, { color: colors.textLight }]}>All subjects assigned!</Text>
+      {/* ============================================================ */}
+      {/* ASSIGN SUBJECT MODAL */}
+      {/* ============================================================ */}
+      <Modal
+        visible={assignModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => {
+          setAssignModalVisible(false);
+          setSelectedTeacher(null);
+        }}
+      >
+        <Pressable
+          className="flex-1 bg-black/50 justify-end"
+          onPress={() => {
+            setAssignModalVisible(false);
+            setSelectedTeacher(null);
+          }}
+        >
+          <Pressable
+            className="bg-white dark:bg-slate-800 rounded-t-3xl max-h-[85%]"
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View className="items-center pt-3 pb-2">
+              <View className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-600" />
+            </View>
+            <View className="flex-row justify-between items-center px-5 py-4 border-b border-gray-100 dark:border-gray-700">
+              <View className="flex-1">
+                <Text className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                  Assign Subject
+                </Text>
+                {selectedTeacher && (
+                  <Text className="text-sm text-gray-500 dark:text-gray-400 mt-0.5">
+                    to {selectedTeacher.name}
+                    {selectedTeacher.role === "hod" ? " (HOD)" : ""}
+                  </Text>
+                )}
+              </View>
+              <Pressable
+                onPress={() => {
+                  setAssignModalVisible(false);
+                  setSelectedTeacher(null);
+                }}
+                className="w-8 h-8 rounded-full bg-gray-100 dark:bg-gray-700 items-center justify-center"
+              >
+                <Ionicons name="close" size={20} color={colors.textLight} />
+              </Pressable>
+            </View>
+
+            <ScrollView className="px-5 pt-4 pb-8" showsVerticalScrollIndicator={false}>
+              {subjects.length === 0 ? (
+                <View className="items-center py-16">
+                  <Ionicons name="book-outline" size={48} color={colors.textLight} />
+                  <Text className="text-gray-400 dark:text-gray-500 mt-3 font-medium">
+                    No Subjects Available
+                  </Text>
+                  <Text className="text-gray-400 dark:text-gray-500 text-sm mt-2 text-center">
+                    Add subjects first from the Subjects tab
+                  </Text>
                 </View>
               ) : (
-                availableSubjects.map((subject) => {
-                  const isAlreadyAssigned = assignments.some((a) => a.subjectId === subject.id);
+                subjects.map((subject) => {
+                  const assigned = getAssignedTeacher(subject.id);
+                  const otherTeacher = assigned && assigned.teacherId !== selectedTeacher?.id;
+                  const sameTeacher = assigned && assigned.teacherId === selectedTeacher?.id;
+
                   return (
-                    <TouchableOpacity 
-                      key={subject.id} 
-                      style={[
-                        styles.subjectOption, 
-                        { borderBottomColor: colors.border },
-                        isAlreadyAssigned && styles.disabledOption
-                      ]} 
-                      onPress={() => !isAlreadyAssigned && handleAssignSubject(subject)}
-                      disabled={isAlreadyAssigned}
+                    <Pressable
+                      key={subject.id}
+                      onPress={() => {
+                        if (sameTeacher) {
+                          Alert.alert("Already Assigned", "Already assigned to this teacher.");
+                          return;
+                        }
+                        handleAssignSubject(subject);
+                      }}
+                      className={`flex-row items-center py-4 border-b border-gray-100 dark:border-gray-700 ${
+                        otherTeacher ? "opacity-60" : ""
+                      }`}
+                      android_ripple={{ color: `${colors.primary}10` }}
                     >
-                      <View>
-                        <Text style={[styles.subjectOptionCode, { color: colors.primary }]}>{subject.subjectId}</Text>
-                        <Text style={[styles.subjectOptionName, { color: colors.textDark }]}>{subject.name}</Text>
-                        <Text style={[styles.subjectOptionMeta, { color: colors.textLight }]}>Semester {subject.semester}</Text>
+                      <View className="flex-1">
+                        <Text className="text-base font-semibold text-gray-900 dark:text-gray-100">
+                          {subject.name}
+                        </Text>
+                        <Text className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                          Semester {subject.semester}
+                        </Text>
                       </View>
-                      {isAlreadyAssigned ? (
-                        <View style={styles.assignedChip}>
-                          <Ionicons name="checkmark" size={16} color="#4CAF50" />
-                          <Text style={styles.assignedChipText}>Assigned</Text>
+
+                      {sameTeacher ? (
+                        <View className="flex-row items-center bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-full">
+                          <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+                          <Text className="text-xs font-medium text-blue-600 dark:text-blue-400 ml-1">
+                            Assigned
+                          </Text>
+                        </View>
+                      ) : otherTeacher ? (
+                        <View className="flex-row items-center bg-orange-50 dark:bg-orange-900/20 px-3 py-1.5 rounded-full">
+                          <Ionicons name="person" size={14} color="#F59E0B" />
+                          <Text className="text-xs font-medium text-orange-600 dark:text-orange-400 ml-1">
+                            {assigned?.teacherName}
+                            {teachers.find((t) => t.id === assigned?.teacherId)?.role === "hod"
+                              ? " (HOD)"
+                              : ""}
+                          </Text>
                         </View>
                       ) : (
-                        <Ionicons name="add-circle" size={28} color="#4CAF50" />
+                        <View className="flex-row items-center bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-full">
+                          <Ionicons name="add-circle" size={18} color="#10B981" />
+                          <Text className="text-xs font-semibold text-green-600 dark:text-green-400 ml-1">
+                            Assign
+                          </Text>
+                        </View>
                       )}
-                    </TouchableOpacity>
+                    </Pressable>
                   );
                 })
               )}
             </ScrollView>
-          </View>
-        </View>
+          </Pressable>
+        </Pressable>
       </Modal>
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  
-  header: { padding: 20, paddingTop: 40, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
-  headerContent: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
-  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center", marginRight: 15 },
-  headerTitle: { fontSize: 20, fontWeight: "bold", color: "#fff" },
-  headerSubtitle: { fontSize: 13, color: "#fff", opacity: 0.9 },
-  
-  tabBar: { flexDirection: "row", paddingVertical: 8, paddingHorizontal: 20, borderBottomWidth: 1 },
-  tab: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 24, gap: 8 },
-  activeTab: { backgroundColor: "rgba(115,132,191,0.1)" },
-  tabText: { fontSize: 14, fontWeight: "500" },
-  
-  content: { flex: 1, padding: 16 },
-  
-  addButton: { flexDirection: "row", paddingVertical: 12, borderRadius: 12, justifyContent: "center", alignItems: "center", gap: 8, marginBottom: 16 },
-  addButtonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
-  
-  card: { flexDirection: "row", borderRadius: 16, padding: 14, marginBottom: 10, alignItems: "center", justifyContent: "space-between", elevation: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 },
-  cardContent: { flex: 1 },
-  subjectHeader: { flexDirection: "row", alignItems: "baseline", gap: 10, marginBottom: 6 },
-  subjectCode: { fontSize: 13, fontWeight: "bold" },
-  subjectName: { fontSize: 16, fontWeight: "600" },
-  detailChip: { flexDirection: "row", alignItems: "center", gap: 6 },
-  detailText: { fontSize: 12 },
-  deleteButton: { padding: 8 },
-  assignedBadge: { flexDirection: "row", alignItems: "center", gap: 4, marginTop: 6 },
-  assignedBadgeText: { fontSize: 10, color: "#4CAF50" },
-  
-  teacherCard: { borderRadius: 16, padding: 14, marginBottom: 12, elevation: 1, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 2 },
-  teacherHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" },
-  teacherInfo: { flex: 1 },
-  teacherName: { fontSize: 16, fontWeight: "bold", marginBottom: 2 },
-  teacherEmail: { fontSize: 12 },
-  assignButton: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 4 },
-  assignButtonText: { fontWeight: "600", fontSize: 12 },
-  
-  assignedList: { marginTop: 12, paddingTop: 10, borderTopWidth: 1, borderTopColor: "#E0E0E0" },
-  assignedTitle: { fontSize: 11, fontWeight: "600", marginBottom: 8 },
-  assignedItem: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 6 },
-  assignedSubjectInfo: { flexDirection: "row", alignItems: "baseline", gap: 8 },
-  assignedSubject: { fontSize: 13 },
-  assignedSemester: { fontSize: 11 },
-  removeButton: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 16, backgroundColor: "#FFEBEE" },
-  removeButtonText: { color: "#F44336", fontSize: 11, fontWeight: "600" },
-  
-  loader: { marginTop: 40 },
-  emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 60 },
-  emptyText: { fontSize: 16, marginTop: 12 },
-  emptySubtext: { fontSize: 12, marginTop: 6, opacity: 0.7 },
-  
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalContent: { borderRadius: 24, width: "90%", maxHeight: "80%", overflow: "hidden" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16 },
-  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
-  modalBody: { padding: 16 },
-  
-  inputLabel: { fontSize: 13, fontWeight: "500", marginBottom: 6, marginTop: 12 },
-  input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15 },
-  submitButton: { paddingVertical: 14, borderRadius: 12, alignItems: "center", marginTop: 20, marginBottom: 10 },
-  submitButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-  
-  subjectOption: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, borderBottomWidth: 1 },
-  disabledOption: { opacity: 0.6 },
-  subjectOptionCode: { fontSize: 13, fontWeight: "bold" },
-  subjectOptionName: { fontSize: 15, fontWeight: "500", marginTop: 2 },
-  subjectOptionMeta: { fontSize: 11, marginTop: 2 },
-  assignedChip: { flexDirection: "row", alignItems: "center", backgroundColor: "#E8F5E9", paddingHorizontal: 10, paddingVertical: 4, borderRadius: 16, gap: 4 },
-  assignedChipText: { fontSize: 12, color: "#4CAF50", fontWeight: "500" },
-});
