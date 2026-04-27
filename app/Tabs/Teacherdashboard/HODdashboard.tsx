@@ -16,7 +16,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
     Alert,
     Animated,
-    Image,
     Modal,
     RefreshControl,
     StyleSheet,
@@ -115,8 +114,7 @@ export default function HODDashboard() {
   const semesters = ["1", "2", "3", "4", "5", "6"];
   const roles = ["teacher", "class_teacher", "exam_coordinator", "lab_incharge"];
 
-  // Calculate button width based on screen size
-  const buttonWidth = (width - 48) / 3; // 16px padding on each side + 16px gap = 48px
+  const buttonWidth = (width - 48) / 3;
 
   useEffect(() => {
     for (let i = 0; i < 6; i++) {
@@ -382,7 +380,15 @@ export default function HODDashboard() {
   };
 
   const navigateToProfile = () => {
-    router.push("/Tabs/ProfileSettings");
+    const userId = auth.currentUser?.uid;
+    if (userId) {
+      router.push({
+        pathname: "/Tabs/ProfileSettings",
+        params: { userId: userId }
+      });
+    } else {
+      router.push("/Tabs/ProfileSettings");
+    }
   };
 
   const menuItems = [
@@ -442,7 +448,6 @@ export default function HODDashboard() {
     },
   ];
 
-  // Split into rows of 3
   const rows = [];
   for (let i = 0; i < menuItems.length; i += 3) {
     rows.push(menuItems.slice(i, i + 3));
@@ -477,15 +482,13 @@ export default function HODDashboard() {
               </TouchableOpacity>
             </View>
 
-            <View style={styles.profileImageContainer}>
-              <View style={styles.profileImageBorder}>
-                <Image 
-                  source={require("../../../assets/images/hod.png")} 
-                  style={styles.profileImage} 
-                  defaultSource={require("../../../assets/images/hod.png")} 
-                />
+            {/* Initials Avatar - No Camera Button */}
+            <View style={styles.initialsContainer}>
+              <View style={[styles.initialsCircle, { backgroundColor: "rgba(255,255,255,0.2)" }]}>
+                <Text style={styles.initialsText}>
+                  {hodData?.name ? hodData.name.charAt(0).toUpperCase() : "H"}
+                </Text>
               </View>
-              <View style={styles.onlineBadge} />
             </View>
 
             <Text style={styles.hodName}>{hodData?.name || "Head of Department"}</Text>
@@ -515,9 +518,15 @@ export default function HODDashboard() {
                 </View>
               )}
             </View>
+
+            {/* Edit Profile Button - This is where user should go to add/change photo */}
+            <TouchableOpacity onPress={navigateToProfile} style={styles.editProfileButton}>
+              <Ionicons name="create-outline" size={16} color="#fff" />
+              <Text style={styles.editProfileButtonText}>Edit Profile</Text>
+            </TouchableOpacity>
           </LinearGradient>
 
-          {/* Stats Cards - 3 in a row */}
+          {/* Stats Cards */}
           <View style={styles.statsContainer}>
             <View style={[styles.statCard, { backgroundColor: colors.card }]}>
               <View style={[styles.statIconWrapper, { backgroundColor: `${colors.primary}15` }]}>
@@ -544,7 +553,7 @@ export default function HODDashboard() {
             </View>
           </View>
 
-          {/* Quick Actions - 3 buttons per row */}
+          {/* Quick Actions */}
           <View style={styles.sectionContainer}>
             <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Quick Actions</Text>
             
@@ -583,7 +592,6 @@ export default function HODDashboard() {
                     </Animated.View>
                   );
                 })}
-                {/* Add empty placeholder if needed to maintain layout */}
                 {row.length < 3 && (
                   <>
                     {[...Array(3 - row.length)].map((_, i) => (
@@ -643,14 +651,14 @@ export default function HODDashboard() {
         </Animated.View>
       </ScrollView>
 
+      <SubjectManagementModal visible={subjectModalVisible} onClose={() => setSubjectModalVisible(false)} department={hodData?.department || ""} onSubjectsUpdated={() => {}} />
+
       {/* Add Note FAB */}
       <TouchableOpacity style={styles.fab} onPress={() => setShowAddNoteModal(true)} activeOpacity={0.8}>
         <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.fabGradient}>
           <Ionicons name="add-outline" size={28} color="#fff" />
         </LinearGradient>
       </TouchableOpacity>
-
-      <SubjectManagementModal visible={subjectModalVisible} onClose={() => setSubjectModalVisible(false)} department={hodData?.department || ""} onSubjectsUpdated={() => {}} />
 
       {/* Assign Class Teacher Modal */}
       <Modal animationType="slide" transparent visible={modalVisible} onRequestClose={() => setModalVisible(false)}>
@@ -828,41 +836,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  profileImageContainer: {
+  initialsContainer: {
     alignItems: "center",
     marginTop: 40,
     marginBottom: 16,
     position: "relative",
   },
-  profileImageBorder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+  initialsCircle: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    justifyContent: "center",
+    alignItems: "center",
     borderWidth: 3,
     borderColor: "#fff",
-    backgroundColor: "#fff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 5,
   },
-  profileImage: {
-    width: 94,
-    height: 94,
-    borderRadius: 47,
-    margin: 3,
-  },
-  onlineBadge: {
-    position: "absolute",
-    bottom: 5,
-    right: width / 2 - 45,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "#4CAF50",
-    borderWidth: 2,
-    borderColor: "#fff",
+  initialsText: {
+    fontSize: 40,
+    fontWeight: "bold",
+    color: "#fff",
   },
   hodName: {
     fontSize: 24,
@@ -906,6 +898,22 @@ const styles = StyleSheet.create({
   contactChipText: {
     fontSize: 11,
     color: "rgba(255,255,255,0.9)",
+  },
+  editProfileButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    marginTop: 16,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 25,
+    gap: 8,
+  },
+  editProfileButtonText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
   },
   
   statsContainer: {
@@ -964,9 +972,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 12,
   },
-  menuCardWrapper: {
-    // width is set dynamically in the component
-  },
+  menuCardWrapper: {},
   menuCard: {
     borderRadius: 16,
     padding: 12,

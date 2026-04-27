@@ -1,8 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, orderBy, query } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import { collection, doc, getDoc, getDocs, orderBy, query, where } from "firebase/firestore";
+import React, { useEffect, useState, useCallback } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -17,9 +17,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../../config/firebaseConfig.native";
+import { useAuth } from "../../../context/AuthContext";
 import { useTheme } from "../../../context/ThemeContext";
 
-const { height } = Dimensions.get("window");
+const { width } = Dimensions.get("window");
 
 interface Student {
   id: string;
@@ -45,8 +46,17 @@ interface StudentDetails extends Student {
   monthlyAttendance?: { [key: string]: { present: number; total: number; percentage: number } };
 }
 
+interface TeacherInfo {
+  id: string;
+  name: string;
+  email: string;
+  department: string;
+  role: string;
+}
+
 export default function TeacherStudentList() {
   const router = useRouter();
+  const { user } = useAuth();
   const { colors, theme, toggleTheme } = useTheme();
   const [students, setStudents] = useState<Student[]>([]);
   const [filteredStudents, setFilteredStudents] = useState<Student[]>([]);
@@ -55,15 +65,79 @@ export default function TeacherStudentList() {
   const [selectedStudent, setSelectedStudent] = useState<StudentDetails | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [teacherInfo, setTeacherInfo] = useState<TeacherInfo | null>(null);
+  const [classTeacherInfo, setClassTeacherInfo] = useState<any>(null);
+  const [availableSemesters, setAvailableSemesters] = useState<string[]>([]);
 
-  const semesters = ["All", "1", "2", "3", "4", "5", "6"];
-
-  // ✅ Fetch students from Firestore
-  const fetchStudents = async () => {
+  // Fetch teacher info and determine role-based access
+  const fetchTeacherInfo = useCallback(async () => {
+    if (!user?.uid) return;
+    
     try {
-      const q = query(collection(db, "students"), orderBy("rollNo", "asc"));
-      const querySnapshot = await getDocs(q);
+      const teacherRef = doc(db, "teachers", user.uid);
+      const teacherSnap = await getDoc(teacherRef);
+      
+      if (teacherSnap.exists()) {
+        const teacherData = teacherSnap.data() as TeacherInfo;
+        setTeacherInfo(teacherData);
+        
+        if (teacherData.role === "hod") {
+          setAvailableSemesters(["All", "1", "2", "3", "4", "5", "6"]);
+          await fetchAllStudents(teacherData.department);
+        } else {
+          await fetchClassTeacherAssignment(teacherData);
+        }
+      } else {
+        Alert.alert("Error", "Teacher information not found");
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error("Error fetching teacher info:", error);
+      Alert.alert("Error", "Failed to load teacher information");
+      setLoading(false);
+    }
+  }, [user?.uid]);
 
+  const fetchClassTeacherAssignment = async (teacher: TeacherInfo) => {
+    try {
+      const classTeacherQuery = query(
+        collection(db, "classTeachers"),
+        where("teacherId", "==", user?.uid)
+      );
+      const classTeacherSnap = await getDocs(classTeacherQuery);
+      
+      if (!classTeacherSnap.empty) {
+        const classData = classTeacherSnap.docs[0].data();
+        setClassTeacherInfo({
+          semester: classData.semester,
+          department: classData.department,
+        });
+        
+        setAvailableSemesters(["All", classData.semester.toString()]);
+        await fetchStudentsByDepartmentAndSemester(teacher.department, classData.semester);
+      } else {
+        Alert.alert("Access Denied", "No class assigned to you. Contact HOD.");
+        setAvailableSemesters(["All"]);
+        setStudents([]);
+        setFilteredStudents([]);
+        setLoading(false);
+      }
+    } catch (error) {
+      console.error("Error fetching class teacher assignment:", error);
+      Alert.alert("Error", "Failed to load class assignment");
+      setLoading(false);
+    }
+  };
+
+  const fetchAllStudents = async (department: string) => {
+    try {
+      const q = query(
+        collection(db, "students"),
+        where("department", "==", department),
+        orderBy("rollNo", "asc")
+      );
+      const querySnapshot = await getDocs(q);
+      
       const studentList: Student[] = querySnapshot.docs.map((doc) => {
         const data = doc.data() as Partial<Student>;
         return {
@@ -82,7 +156,7 @@ export default function TeacherStudentList() {
           bloodGroup: data.bloodGroup ?? "",
         };
       });
-
+      
       const sortedList = studentList.sort((a, b) => a.rollNo.localeCompare(b.rollNo));
       setStudents(sortedList);
       filterBySemester(sortedList, selectedSemester);
@@ -94,12 +168,46 @@ export default function TeacherStudentList() {
     }
   };
 
-  useEffect(() => {
-    fetchStudents();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const fetchStudentsByDepartmentAndSemester = async (department: string, semester: string) => {
+    try {
+      const q = query(
+        collection(db, "students"),
+        where("department", "==", department),
+        where("semester", "==", semester.toString()),
+        orderBy("rollNo", "asc")
+      );
+      const querySnapshot = await getDocs(q);
+      
+      const studentList: Student[] = querySnapshot.docs.map((doc) => {
+        const data = doc.data() as Partial<Student>;
+        return {
+          id: doc.id,
+          Name: data.Name ?? "",
+          rollNo: data.rollNo ?? "",
+          phone: data.phone ?? "",
+          department: data.department ?? "",
+          semester: data.semester ?? "",
+          address: data.address ?? "",
+          parentPhone: data.parentPhone ?? "",
+          email: data.email ?? "",
+          classRollNo: data.classRollNo ?? "",
+          boardRollNo: data.boardRollNo ?? "",
+          dateOfBirth: data.dateOfBirth ?? "",
+          bloodGroup: data.bloodGroup ?? "",
+        };
+      });
+      
+      const sortedList = studentList.sort((a, b) => a.rollNo.localeCompare(b.rollNo));
+      setStudents(sortedList);
+      filterBySemester(sortedList, selectedSemester);
+    } catch (error) {
+      console.error("Error fetching students:", error);
+      Alert.alert("Error", "Failed to load students from Firestore.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // ✅ Filter by semester
   const filterBySemester = (data: Student[], semester: string) => {
     let filtered = data.filter((s) =>
       semester === "All" ? true : String(s.semester) === semester
@@ -107,13 +215,11 @@ export default function TeacherStudentList() {
     setFilteredStudents(filtered);
   };
 
-  // ✅ Handle semester change
   const handleSemesterChange = (semester: string) => {
     setSelectedSemester(semester);
     filterBySemester(students, semester);
   };
 
-  // ✅ Fetch complete student details including attendance
   const fetchStudentDetails = async (student: Student) => {
     setAttendanceLoading(true);
     try {
@@ -124,17 +230,15 @@ export default function TeacherStudentList() {
         const data = studentSnap.data();
         const attendance = data.attendance || {};
         
-        // Calculate overall attendance
         const attendanceValues = Object.values(attendance);
         const totalClasses = attendanceValues.length;
         const presentClasses = attendanceValues.filter((v) => v === "present").length;
         const attendancePercentage = totalClasses === 0 ? 0 : Math.round((presentClasses / totalClasses) * 100);
         
-        // Calculate monthly attendance
         const monthlyAttendance: { [key: string]: { present: number; total: number; percentage: number } } = {};
         
         Object.entries(attendance).forEach(([date, status]) => {
-          const month = date.substring(0, 7); // YYYY-MM format
+          const month = date.substring(0, 7);
           if (!monthlyAttendance[month]) {
             monthlyAttendance[month] = { present: 0, total: 0, percentage: 0 };
           }
@@ -167,7 +271,10 @@ export default function TeacherStudentList() {
     }
   };
 
-  // ✅ Render semester filter buttons
+  useEffect(() => {
+    fetchTeacherInfo();
+  }, [fetchTeacherInfo]);
+
   const renderSemesterFilters = () => (
     <ScrollView 
       horizontal 
@@ -175,7 +282,7 @@ export default function TeacherStudentList() {
       style={styles.semesterScroll}
       contentContainerStyle={styles.semesterContainer}
     >
-      {semesters.map((sem) => (
+      {availableSemesters.map((sem) => (
         <TouchableOpacity
           key={sem}
           style={[
@@ -197,7 +304,6 @@ export default function TeacherStudentList() {
     </ScrollView>
   );
 
-  // ✅ Render each student card
   const renderStudent = ({ item, index }: { item: Student; index: number }) => (
     <TouchableOpacity
       style={[styles.studentCard, { backgroundColor: colors.card }]}
@@ -205,13 +311,13 @@ export default function TeacherStudentList() {
       activeOpacity={0.7}
     >
       <LinearGradient
-        colors={[colors.card, `${colors.background}`]}
+        colors={[colors.card, colors.background]}
         style={styles.cardGradient}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
       >
         <View style={styles.cardHeader}>
-          <View style={styles.serialContainer}>
+          <View style={[styles.serialContainer, { backgroundColor: colors.primary }]}>
             <Text style={styles.serialNumber}>{index + 1}</Text>
           </View>
           <View style={styles.studentInfo}>
@@ -225,13 +331,7 @@ export default function TeacherStudentList() {
     </TouchableOpacity>
   );
 
-  // ✅ Calculate semester stats
-  const getSemesterStats = () => {
-    const total = filteredStudents.length;
-    return { total };
-  };
-
-  const stats = getSemesterStats();
+  const stats = { total: filteredStudents.length };
 
   if (loading) {
     return (
@@ -253,9 +353,14 @@ export default function TeacherStudentList() {
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>Student Management</Text>
-            <Text style={styles.headerSubtitle}>View and manage student records</Text>
+            <Text style={styles.headerSubtitle}>
+              {teacherInfo?.role === "hod" 
+                ? `${teacherInfo?.department} Department - All Students`
+                : classTeacherInfo 
+                  ? `${teacherInfo?.department} - Semester ${classTeacherInfo?.semester}`
+                  : "View and manage student records"}
+            </Text>
           </View>
-          {/* Theme Toggle Button */}
           <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
             <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
           </TouchableOpacity>
@@ -263,23 +368,31 @@ export default function TeacherStudentList() {
       </LinearGradient>
 
       <View style={styles.content}>
-        {/* Semester Filters */}
-        <View style={styles.filterSection}>
-          <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Filter by Semester</Text>
-          {renderSemesterFilters()}
-        </View>
+        {availableSemesters.length > 0 && (
+          <View style={styles.filterSection}>
+            <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Filter by Semester</Text>
+            {renderSemesterFilters()}
+          </View>
+        )}
 
-        {/* Stats Card */}
         <View style={[styles.statsCard, { backgroundColor: colors.card }]}>
           <Text style={[styles.statsValue, { color: colors.primary }]}>{stats.total}</Text>
-          <Text style={[styles.statsLabel, { color: colors.textLight }]}>Students in Selected Semester</Text>
+          <Text style={[styles.statsLabel, { color: colors.textLight }]}>
+            {teacherInfo?.role === "hod" 
+              ? "Students in Selected Semester"
+              : "Students in Your Class"}
+          </Text>
         </View>
 
-        {/* Students List */}
         {filteredStudents.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="people-outline" size={64} color={colors.textLight} />
-            <Text style={[styles.emptyText, { color: colors.textLight }]}>No students found in this semester</Text>
+            <Text style={[styles.emptyText, { color: colors.textLight }]}>No students found</Text>
+            {teacherInfo?.role !== "hod" && !classTeacherInfo && (
+              <Text style={[styles.emptySubText, { color: colors.textLight }]}>
+                No class assigned to you. Please contact HOD.
+              </Text>
+            )}
           </View>
         ) : (
           <FlatList
@@ -316,7 +429,6 @@ export default function TeacherStudentList() {
                 </View>
               ) : selectedStudent && (
                 <>
-                  {/* Personal Information */}
                   <View style={styles.infoSection}>
                     <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Personal Information</Text>
                     <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
@@ -348,7 +460,6 @@ export default function TeacherStudentList() {
                     </View>
                   </View>
 
-                  {/* Academic Information */}
                   <View style={styles.infoSection}>
                     <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Academic Information</Text>
                     <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
@@ -380,7 +491,6 @@ export default function TeacherStudentList() {
                     </View>
                   </View>
 
-                  {/* Attendance Information */}
                   <View style={styles.infoSection}>
                     <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Attendance Overview</Text>
                     <View style={[styles.attendanceCard, { backgroundColor: colors.background }]}>
@@ -396,9 +506,6 @@ export default function TeacherStudentList() {
                         <View style={styles.attendanceStat}>
                           <Text style={[
                             styles.attendanceStatValue,
-                            (selectedStudent.attendancePercentage || 0) >= 75 ? styles.goodAttendance :
-                            (selectedStudent.attendancePercentage || 0) >= 60 ? styles.warningAttendance :
-                            styles.poorAttendance,
                             { color: (selectedStudent.attendancePercentage || 0) >= 75 ? "#4CAF50" : (selectedStudent.attendancePercentage || 0) >= 60 ? "#FF9800" : "#F44336" }
                           ]}>
                             {selectedStudent.attendancePercentage || 0}%
@@ -407,7 +514,6 @@ export default function TeacherStudentList() {
                         </View>
                       </View>
                       
-                      {/* Monthly Attendance */}
                       {selectedStudent.monthlyAttendance && Object.keys(selectedStudent.monthlyAttendance).length > 0 && (
                         <View style={styles.monthlyAttendance}>
                           <Text style={[styles.monthlyTitle, { color: colors.textDark }]}>Monthly Attendance</Text>
@@ -433,7 +539,6 @@ export default function TeacherStudentList() {
                     </View>
                   </View>
 
-                  {/* Additional Information */}
                   <View style={styles.infoSection}>
                     <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Additional Information</Text>
                     <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
@@ -465,7 +570,8 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 20,
-    paddingTop: 40,
+    paddingTop: 20,
+    paddingBottom: 25,
     borderBottomLeftRadius: 20,
     borderBottomRightRadius: 20,
   },
@@ -527,9 +633,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     marginRight: 10,
-    elevation: 2,
     borderWidth: 1,
-    boxShadow: "0px 1px 2px rgba(0,0,0,0.05)",
   },
   selectedSemesterButton: {
     backgroundColor: "#7384bf",
@@ -547,7 +651,6 @@ const styles = StyleSheet.create({
     padding: 15,
     alignItems: "center",
     marginBottom: 15,
-    elevation: 2,
   },
   statsValue: {
     fontSize: 28,
@@ -564,8 +667,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     borderRadius: 12,
     overflow: "hidden",
-    elevation: 2,
-    boxShadow: "0px 1px 2px rgba(0,0,0,0.05)",
   },
   cardGradient: {
     padding: 15,
@@ -578,7 +679,6 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: "#7384bf",
     justifyContent: "center",
     alignItems: "center",
     marginRight: 12,
@@ -608,10 +708,16 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 10,
   },
+  emptySubText: {
+    fontSize: 12,
+    marginTop: 5,
+    textAlign: "center",
+  },
   loadingContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingVertical: 50,
   },
   loadingText: {
     marginTop: 10,
@@ -685,15 +791,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 5,
   },
-  goodAttendance: {
-    color: "#4CAF50",
-  },
-  warningAttendance: {
-    color: "#FF9800",
-  },
-  poorAttendance: {
-    color: "#F44336",
-  },
   monthlyAttendance: {
     marginTop: 15,
   },
@@ -727,5 +824,4 @@ const styles = StyleSheet.create({
   monthlyDetails: {
     fontSize: 10,
   },
-  
 });

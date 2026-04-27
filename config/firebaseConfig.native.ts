@@ -5,6 +5,7 @@ import {
   Auth,
 } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";  // ✅ ADD THIS IMPORT
 import { Platform } from "react-native";
 
 const firebaseConfig = {
@@ -29,4 +30,5 @@ const auth: Auth = Platform.OS === "web"
     })();
 
 export const db = getFirestore(app);
+export const storage = getStorage(app);  // ✅ ADD THIS EXPORT
 export { auth, app };

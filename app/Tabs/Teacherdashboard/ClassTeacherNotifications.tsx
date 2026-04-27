@@ -36,7 +36,7 @@ interface StudentRequest {
   createdAt: string;
 }
 
-const ClassTeacherNotifications = () => {
+export default function ClassTeacherNotifications() {
   const router = useRouter();
   const { colors, theme, toggleTheme } = useTheme();
   const [requests, setRequests] = useState<StudentRequest[]>([]);
@@ -44,16 +44,23 @@ const ClassTeacherNotifications = () => {
   const [selectedRequest, setSelectedRequest] = useState<StudentRequest | null>(null);
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
 
   useEffect(() => {
     fetchRequests();
-    // Entrance animation
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 600,
-      useNativeDriver: true,
-    }).start();
-  }, [fadeAnim]);
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 600,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [fadeAnim, slideAnim]);
 
   const fetchRequests = async () => {
     try {
@@ -165,6 +172,10 @@ const ClassTeacherNotifications = () => {
     setDetailsModalVisible(true);
   };
 
+  const approvedCount = 0;
+  const rejectedCount = 0;
+  const pendingCount = requests.length;
+
   const renderItem = ({ item, index }: { item: StudentRequest; index: number }) => (
     <Animated.View 
       style={[
@@ -180,61 +191,56 @@ const ClassTeacherNotifications = () => {
         }
       ]}
     >
-      <LinearGradient
-        colors={[colors.card, colors.background]}
-        style={styles.card}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
+      <View style={[styles.card, { backgroundColor: colors.card }]}>
         <View style={styles.cardHeader}>
           <View style={[styles.iconContainer, { backgroundColor: colors.primary + "20" }]}>
             <Text style={[styles.indexNumber, { color: colors.primary }]}>{index + 1}</Text>
           </View>
           <View style={styles.cardContent}>
             <View style={styles.nameRow}>
-              <Text style={[styles.name, { color: colors.textDark }]}>{item.name}</Text>
-              <View style={[styles.statusBadge, { backgroundColor: "#FF9800" + "20" }]}>
-                <View style={styles.statusDot} />
-                <Text style={[styles.statusText, { color: "#FF9800" }]}>Pending</Text>
+              <Text style={[styles.name, { color: colors.textDark }]} numberOfLines={1}>{item.name}</Text>
+              <View style={[styles.statusBadge, { backgroundColor: colors.primary + "20" }]}>
+                <View style={[styles.statusDot, { backgroundColor: colors.primary }]} />
+                <Text style={[styles.statusText, { color: colors.primary }]}>Pending</Text>
               </View>
             </View>
             
             <View style={styles.boardRollContainer}>
               <Ionicons name="qr-code" size={14} color={colors.primary} />
-              <Text style={[styles.boardRollText, { color: colors.primary }]}>
-                {item.boardRollNo}
+              <Text style={[styles.boardRollText, { color: colors.primary }]} numberOfLines={1}>
+                Board Roll: {item.boardRollNo}
               </Text>
             </View>
             
             <View style={styles.detailRow}>
               <Ionicons name="business-outline" size={14} color={colors.textLight} />
-              <Text style={[styles.detailText, { color: colors.textLight }]}>{item.department}</Text>
-              <View style={styles.separator} />
+              <Text style={[styles.detailText, { color: colors.textLight }]} numberOfLines={1}>{item.department}</Text>
+              <View style={[styles.separator, { backgroundColor: colors.border }]} />
               <Ionicons name="book-outline" size={14} color={colors.textLight} />
-              <Text style={[styles.detailText, { color: colors.textLight }]}>Sem {item.semester}</Text>
+              <Text style={[styles.detailText, { color: colors.textLight }]} numberOfLines={1}>Semester {item.semester}</Text>
             </View>
 
             <View style={styles.detailRow}>
               <Ionicons name="call-outline" size={14} color={colors.textLight} />
-              <Text style={[styles.detailText, { color: colors.textLight }]}>{item.phone}</Text>
+              <Text style={[styles.detailText, { color: colors.textLight }]} numberOfLines={1}>{item.phone}</Text>
             </View>
           </View>
         </View>
 
         <View style={styles.buttonRow}>
           <TouchableOpacity
-            style={[styles.actionBtn, styles.viewBtn]}
+            style={[styles.actionBtn, styles.viewBtn, { backgroundColor: colors.background, borderColor: colors.border }]}
             onPress={() => viewDetails(item)}
           >
-            <Ionicons name="eye-outline" size={18} color={colors.primary} />
+            <Ionicons name="eye-outline" size={16} color={colors.primary} />
             <Text style={[styles.viewBtnText, { color: colors.primary }]}>View</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.actionBtn, styles.approveBtn]}
+            style={[styles.actionBtn, { backgroundColor: colors.secondary }]}
             onPress={() => approveStudent(item)}
           >
-            <Ionicons name="checkmark-circle" size={18} color="white" />
+            <Ionicons name="checkmark-circle" size={16} color="#fff" />
             <Text style={styles.approveBtnText}>Approve</Text>
           </TouchableOpacity>
 
@@ -242,11 +248,11 @@ const ClassTeacherNotifications = () => {
             style={[styles.actionBtn, styles.rejectBtn]}
             onPress={() => rejectStudent(item)}
           >
-            <Ionicons name="close-circle" size={18} color="white" />
+            <Ionicons name="close-circle" size={16} color="#fff" />
             <Text style={styles.rejectBtnText}>Reject</Text>
           </TouchableOpacity>
         </View>
-      </LinearGradient>
+      </View>
     </Animated.View>
   );
 
@@ -258,9 +264,9 @@ const ClassTeacherNotifications = () => {
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTitle}>Student Requests</Text>
+            <Text style={styles.headerTitle}>Student Registration Requests</Text>
             <Text style={styles.headerSubtitle}>
-              Manage new student registrations
+              Review and manage new student registrations
             </Text>
           </View>
           <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
@@ -270,40 +276,38 @@ const ClassTeacherNotifications = () => {
       </LinearGradient>
 
       <View style={styles.content}>
-        {/* Stats Cards Row */}
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { backgroundColor: colors.card }]}>
             <View style={[styles.statIconBg, { backgroundColor: colors.primary + "20" }]}>
-              <Ionicons name="people-outline" size={24} color={colors.primary} />
+              <Ionicons name="time-outline" size={24} color={colors.primary} />
             </View>
             <View>
-              <Text style={[styles.statValue, { color: colors.textDark }]}>{requests.length}</Text>
+              <Text style={[styles.statValue, { color: colors.textDark }]}>{pendingCount}</Text>
               <Text style={[styles.statLabel, { color: colors.textLight }]}>Pending</Text>
             </View>
           </View>
 
           <View style={[styles.statCard, { backgroundColor: colors.card }]}>
-            <View style={[styles.statIconBg, { backgroundColor: "#4CAF50" + "20" }]}>
-              <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
+            <View style={[styles.statIconBg, { backgroundColor: colors.secondary + "20" }]}>
+              <Ionicons name="checkmark-circle" size={24} color={colors.secondary} />
             </View>
             <View>
-              <Text style={[styles.statValue, { color: colors.textDark }]}>0</Text>
+              <Text style={[styles.statValue, { color: colors.textDark }]}>{approvedCount}</Text>
               <Text style={[styles.statLabel, { color: colors.textLight }]}>Approved</Text>
             </View>
           </View>
 
           <View style={[styles.statCard, { backgroundColor: colors.card }]}>
-            <View style={[styles.statIconBg, { backgroundColor: "#F44336" + "20" }]}>
-              <Ionicons name="close-circle" size={24} color="#F44336" />
+            <View style={[styles.statIconBg, { backgroundColor: "#EF4444" + "20" }]}>
+              <Ionicons name="close-circle" size={24} color="#EF4444" />
             </View>
             <View>
-              <Text style={[styles.statValue, { color: colors.textDark }]}>0</Text>
+              <Text style={[styles.statValue, { color: colors.textDark }]}>{rejectedCount}</Text>
               <Text style={[styles.statLabel, { color: colors.textLight }]}>Rejected</Text>
             </View>
           </View>
         </View>
 
-        {/* Requests List */}
         <FlatList
           data={requests}
           keyExtractor={(item) => item.id}
@@ -311,24 +315,21 @@ const ClassTeacherNotifications = () => {
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} tintColor={colors.primary} />
           }
           ListHeaderComponent={
             requests.length > 0 ? (
               <View style={styles.listHeader}>
                 <Text style={[styles.listHeaderText, { color: colors.textLight }]}>
-                  {requests.length} request{requests.length !== 1 ? 's' : ''} waiting for approval
+                  {requests.length} registration request{requests.length !== 1 ? 's' : ''} waiting for your approval
                 </Text>
               </View>
             ) : null
           }
           ListEmptyComponent={
             <Animated.View style={[styles.emptyContainer, { opacity: fadeAnim }]}>
-              <LinearGradient
-                colors={[colors.card, colors.background]}
-                style={styles.emptyCard}
-              >
-                <Ionicons name="checkmark-done-circle" size={80} color="#4CAF50" />
+              <View style={[styles.emptyCard, { backgroundColor: colors.card }]}>
+                <Ionicons name="checkmark-done-circle" size={80} color={colors.secondary} />
                 <Text style={[styles.emptyTitle, { color: colors.textDark }]}>All Caught Up!</Text>
                 <Text style={[styles.emptyText, { color: colors.textLight }]}>
                   No pending student registration requests
@@ -336,7 +337,7 @@ const ClassTeacherNotifications = () => {
                 <Text style={[styles.emptySubText, { color: colors.textLight }]}>
                   New requests will appear here when students register
                 </Text>
-              </LinearGradient>
+              </View>
             </Animated.View>
           }
         />
@@ -358,11 +359,11 @@ const ClassTeacherNotifications = () => {
               </TouchableOpacity>
             </LinearGradient>
 
-            <ScrollView style={styles.modalBody}>
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
               {selectedRequest && (
                 <>
                   <View style={styles.detailSection}>
-                    <Text style={[styles.detailSectionTitle, { color: colors.primary }]}>Personal Information</Text>
+                    <Text style={[styles.detailSectionTitle, { color: colors.primary }]}>📋 Personal Information</Text>
                     
                     <View style={[styles.detailItem, { borderBottomColor: colors.border }]}>
                       <Ionicons name="person-outline" size={20} color={colors.primary} />
@@ -383,7 +384,7 @@ const ClassTeacherNotifications = () => {
                     <View style={[styles.detailItem, { borderBottomColor: colors.border }]}>
                       <Ionicons name="mail-outline" size={20} color={colors.primary} />
                       <View style={styles.detailItemContent}>
-                        <Text style={[styles.detailLabel, { color: colors.textLight }]}>Email</Text>
+                        <Text style={[styles.detailLabel, { color: colors.textLight }]}>Email Address</Text>
                         <Text style={[styles.detailValue, { color: colors.textDark }]}>{selectedRequest.email || "Not provided"}</Text>
                       </View>
                     </View>
@@ -400,7 +401,7 @@ const ClassTeacherNotifications = () => {
                       <View style={[styles.detailItem, { borderBottomColor: colors.border }]}>
                         <Ionicons name="people-outline" size={20} color={colors.primary} />
                         <View style={styles.detailItemContent}>
-                          <Text style={[styles.detailLabel, { color: colors.textLight }]}>Parent Phone</Text>
+                          <Text style={[styles.detailLabel, { color: colors.textLight }]}>Parent/Guardian Phone</Text>
                           <Text style={[styles.detailValue, { color: colors.textDark }]}>{selectedRequest.parentPhone}</Text>
                         </View>
                       </View>
@@ -408,7 +409,7 @@ const ClassTeacherNotifications = () => {
                   </View>
 
                   <View style={styles.detailSection}>
-                    <Text style={[styles.detailSectionTitle, { color: colors.primary }]}>Academic Information</Text>
+                    <Text style={[styles.detailSectionTitle, { color: colors.primary }]}>🎓 Academic Information</Text>
                     
                     <View style={[styles.detailItem, { borderBottomColor: colors.border }]}>
                       <Ionicons name="business-outline" size={20} color={colors.primary} />
@@ -421,16 +422,16 @@ const ClassTeacherNotifications = () => {
                     <View style={[styles.detailItem, { borderBottomColor: colors.border }]}>
                       <Ionicons name="book-outline" size={20} color={colors.primary} />
                       <View style={styles.detailItemContent}>
-                        <Text style={[styles.detailLabel, { color: colors.textLight }]}>Semester</Text>
-                        <Text style={[styles.detailValue, { color: colors.textDark }]}>{selectedRequest.semester}</Text>
+                        <Text style={[styles.detailLabel, { color: colors.textLight }]}>Current Semester</Text>
+                        <Text style={[styles.detailValue, { color: colors.textDark }]}>Semester {selectedRequest.semester}</Text>
                       </View>
                     </View>
 
                     <View style={[styles.detailItem, { borderBottomColor: colors.border }]}>
                       <Ionicons name="document-text-outline" size={20} color={colors.primary} />
                       <View style={styles.detailItemContent}>
-                        <Text style={[styles.detailLabel, { color: colors.textLight }]}>Roll Number</Text>
-                        <Text style={[styles.detailValue, { color: colors.textDark }]}>{selectedRequest.rollNo || "N/A"}</Text>
+                        <Text style={[styles.detailLabel, { color: colors.textLight }]}>University Roll Number</Text>
+                        <Text style={[styles.detailValue, { color: colors.textDark }]}>{selectedRequest.rollNo || "Not assigned yet"}</Text>
                       </View>
                     </View>
 
@@ -438,14 +439,14 @@ const ClassTeacherNotifications = () => {
                       <Ionicons name="grid-outline" size={20} color={colors.primary} />
                       <View style={styles.detailItemContent}>
                         <Text style={[styles.detailLabel, { color: colors.textLight }]}>Class Roll Number</Text>
-                        <Text style={[styles.detailValue, { color: colors.textDark }]}>{selectedRequest.classRollNo || "N/A"}</Text>
+                        <Text style={[styles.detailValue, { color: colors.textDark }]}>{selectedRequest.classRollNo || "Not assigned yet"}</Text>
                       </View>
                     </View>
                   </View>
 
                   {selectedRequest.address && (
                     <View style={styles.detailSection}>
-                      <Text style={[styles.detailSectionTitle, { color: colors.primary }]}>Address</Text>
+                      <Text style={[styles.detailSectionTitle, { color: colors.primary }]}>📍 Address</Text>
                       <View style={[styles.detailItem, { borderBottomColor: colors.border }]}>
                         <Ionicons name="location-outline" size={20} color={colors.primary} />
                         <View style={styles.detailItemContent}>
@@ -458,26 +459,26 @@ const ClassTeacherNotifications = () => {
               )}
             </ScrollView>
 
-            <View style={styles.modalFooter}>
+            <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
               <TouchableOpacity
-                style={[styles.modalApproveBtn, { backgroundColor: "#4CAF50" }]}
+                style={[styles.modalApproveBtn, { backgroundColor: colors.secondary }]}
                 onPress={() => {
                   if (selectedRequest) approveStudent(selectedRequest);
                   setDetailsModalVisible(false);
                 }}
               >
-                <Ionicons name="checkmark-circle" size={20} color="white" />
+                <Ionicons name="checkmark-circle" size={20} color="#fff" />
                 <Text style={styles.modalBtnText}>Approve</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalRejectBtn, { backgroundColor: "#F44336" }]}
+                style={[styles.modalRejectBtn, { backgroundColor: "#EF4444" }]}
                 onPress={() => {
                   if (selectedRequest) rejectStudent(selectedRequest);
                   setDetailsModalVisible(false);
                 }}
               >
-                <Ionicons name="close-circle" size={20} color="white" />
+                <Ionicons name="close-circle" size={20} color="#fff" />
                 <Text style={styles.modalBtnText}>Reject</Text>
               </TouchableOpacity>
             </View>
@@ -486,7 +487,7 @@ const ClassTeacherNotifications = () => {
       </Modal>
     </SafeAreaView>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
@@ -494,9 +495,10 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 20,
-    paddingTop: 40,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+    paddingTop: 20,
+    paddingBottom: 25,
+    borderBottomLeftRadius: 25,
+    borderBottomRightRadius: 25,
   },
   headerContent: {
     flexDirection: "row",
@@ -523,7 +525,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "bold",
     color: "#fff",
   },
@@ -535,39 +537,44 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 15,
+    padding: 16,
   },
   statsRow: {
     flexDirection: "row",
-    gap: 12,
-    marginBottom: 20,
+    justifyContent: "space-between",
+    marginBottom: 16,
   },
   statCard: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    padding: 12,
-    borderRadius: 15,
-    gap: 10,
-    elevation: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 16,
+    marginHorizontal: 4,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
   },
   statIconBg: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     justifyContent: "center",
     alignItems: "center",
   },
   statValue: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: "bold",
   },
   statLabel: {
-    fontSize: 11,
-    marginTop: 2,
+    fontSize: 10,
+    flexShrink: 1,
   },
   listHeader: {
-    marginBottom: 12,
+    marginBottom: 8,
     paddingHorizontal: 4,
   },
   listHeaderText: {
@@ -581,8 +588,12 @@ const styles = StyleSheet.create({
   },
   card: {
     borderRadius: 16,
-    padding: 15,
+    padding: 16,
     elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
   },
   cardHeader: {
     flexDirection: "row",
@@ -608,6 +619,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 6,
+    gap: 8,
   },
   name: {
     fontSize: 16,
@@ -621,12 +633,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
     gap: 4,
+    flexShrink: 0,
   },
   statusDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: "#FF9800",
   },
   statusText: {
     fontSize: 10,
@@ -640,13 +652,15 @@ const styles = StyleSheet.create({
   },
   boardRollText: {
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "500",
+    flex: 1,
   },
   detailRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 4,
     gap: 6,
+    flexWrap: "wrap",
   },
   detailText: {
     fontSize: 12,
@@ -654,44 +668,40 @@ const styles = StyleSheet.create({
   separator: {
     width: 1,
     height: 10,
-    backgroundColor: "#ccc",
     marginHorizontal: 4,
   },
   buttonRow: {
     flexDirection: "row",
-    marginTop: 10,
+    marginTop: 12,
     gap: 8,
   },
   actionBtn: {
     flex: 1,
-    paddingVertical: 10,
+    paddingVertical: 8,
     borderRadius: 8,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
+    gap: 4,
   },
   viewBtn: {
-    backgroundColor: "rgba(0,0,0,0.05)",
+    borderWidth: 1,
   },
   viewBtnText: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
   },
-  approveBtn: {
-    backgroundColor: "#4CAF50",
-  },
   approveBtnText: {
-    color: "white",
-    fontSize: 13,
+    color: "#fff",
+    fontSize: 12,
     fontWeight: "600",
   },
   rejectBtn: {
-    backgroundColor: "#F44336",
+    backgroundColor: "#EF4444",
   },
   rejectBtnText: {
-    color: "white",
-    fontSize: 13,
+    color: "#fff",
+    fontSize: 12,
     fontWeight: "600",
   },
   emptyContainer: {
@@ -731,6 +741,11 @@ const styles = StyleSheet.create({
     width: "90%",
     maxHeight: "85%",
     overflow: "hidden",
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
   },
   modalHeader: {
     flexDirection: "row",
@@ -745,7 +760,6 @@ const styles = StyleSheet.create({
   },
   modalBody: {
     padding: 20,
-    maxHeight: 500,
   },
   detailSection: {
     marginBottom: 20,
@@ -775,10 +789,9 @@ const styles = StyleSheet.create({
   },
   modalFooter: {
     flexDirection: "row",
-    padding: 15,
+    padding: 16,
     gap: 10,
     borderTopWidth: 1,
-    borderTopColor: "#eee",
   },
   modalApproveBtn: {
     flex: 1,
@@ -799,10 +812,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   modalBtnText: {
-    color: "white",
+    color: "#fff",
     fontSize: 14,
     fontWeight: "600",
   },
 });
-
-export default ClassTeacherNotifications;

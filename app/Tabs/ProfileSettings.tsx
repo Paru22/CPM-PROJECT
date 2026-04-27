@@ -1,9 +1,9 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import * as ImagePicker from "expo-image-picker";
-import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -19,135 +19,201 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../config/firebaseConfig.native";
-import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 
 const { width } = Dimensions.get("window");
 
+type UserRole = "student" | "teacher" | "class_teacher" | "hod";
+
+interface UserProfile {
+  docId: string;
+  collectionName: string;
+  role: UserRole;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  profileImage: string | null;
+  dateOfBirth: string;
+  rollNo?: string;
+  semester?: string;
+  department?: string;
+  parentPhone?: string;
+  boardRollNo?: string;
+  qualification?: string;
+  experience?: string;
+  specialization?: string;
+  designation?: string;
+}
+
 export default function ProfileSettings() {
   const router = useRouter();
-  const { user } = useAuth();
+  const params = useLocalSearchParams<any>();
   const { colors, theme, toggleTheme } = useTheme();
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
-  const [, setUserData] = useState<any>(null); // Fixed: removed unused variable warning
-  const [userRole, setUserRole] = useState<string>("");
   const [editMode, setEditMode] = useState(false);
-  const [collectionName, setCollectionName] = useState<string>("");
-  const [profileImage, setProfileImage] = useState<string | null>(null);
   
-  // Common fields for all users
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [bio, setBio] = useState("");
-  const [dateOfBirth, setDateOfBirth] = useState("");
-  const [emergencyContact, setEmergencyContact] = useState("");
-  
-  // Teacher specific fields
-  const [department, setDepartment] = useState("");
-  const [qualification, setQualification] = useState("");
-  const [experience, setExperience] = useState("");
-  const [specialization, setSpecialization] = useState("");
-  
-  // Student specific fields
-  const [rollNumber, setRollNumber] = useState("");
-  const [semester, setSemester] = useState("");
-  const [parentPhone, setParentPhone] = useState("");
-  const [admissionYear, setAdmissionYear] = useState("");
+  const [profile, setProfile] = useState<UserProfile>({
+    docId: "",
+    collectionName: "",
+    role: "student",
+    name: "",
+    email: "",
+    phone: "",
+    address: "",
+    profileImage: null,
+    dateOfBirth: "",
+  });
 
   const storage = getStorage();
 
-  // Fetch user profile data
   const fetchUserProfile = useCallback(async () => {
-    if (!user?.uid) {
-      setLoading(false);
-      return;
-    }
-
     try {
-      console.log("Fetching profile for UID:", user.uid);
+      const identifier = params.boardRollNo || params.teacherId || params.userId;
       
-      // Check in teachers collection first
-      let userDoc = await getDoc(doc(db, "teachers", user.uid));
-      let role = "teacher";
-      let collection = "teachers";
-      
-      if (userDoc.exists()) {
-        const data = userDoc.data();
-        role = data.role || "teacher";
-        collection = "teachers";
-        setUserData(data);
-        
-        // Common fields
-        setName(data.name || "");
-        setEmail(data.email || "");
-        setPhone(data.phone || "");
-        setAddress(data.address || "");
-        setBio(data.bio || "");
-        setDateOfBirth(data.dateOfBirth || "");
-        setEmergencyContact(data.emergencyContact || "");
-        setProfileImage(data.profileImage || null);
-        
-        // Teacher specific fields
-        setDepartment(data.department || "");
-        setQualification(data.qualification || "");
-        setExperience(data.experience || "");
-        setSpecialization(data.specialization || "");
-        
-        // Reset student fields
-        setRollNumber("");
-        setSemester("");
-        setParentPhone("");
-        setAdmissionYear("");
-        
-      } else {
-        // Check in students collection
-        userDoc = await getDoc(doc(db, "students", user.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          role = "student";
-          collection = "students";
-          setUserData(data);
-          
-          // Common fields
-          setName(data.name || "");
-          setEmail(data.email || "");
-          setPhone(data.phone || "");
-          setAddress(data.address || "");
-          setBio(data.bio || "");
-          setDateOfBirth(data.dateOfBirth || "");
-          setEmergencyContact(data.emergencyContact || "");
-          setProfileImage(data.profileImage || null);
-          
-          // Student specific fields
-          setRollNumber(data.rollNumber || data.rollNo || "");
-          setSemester(data.semester || "");
-          setParentPhone(data.parentPhone || "");
-          setAdmissionYear(data.admissionYear || "");
-          
-          // Reset teacher fields
-          setDepartment("");
-          setQualification("");
-          setExperience("");
-          setSpecialization("");
-        } else {
-          Alert.alert("Error", "User profile not found");
-        }
+      if (!identifier) {
+        Alert.alert("Error", "No user identifier found");
+        setLoading(false);
+        return;
       }
+
+      console.log("Fetching profile for:", identifier);
+
+      // TRY 1: Search in students collection by boardRollNo
+      const studentQuery = query(
+        collection(db, "students"),
+        where("boardRollNo", "==", identifier)
+      );
+      const studentSnap = await getDocs(studentQuery);
       
-      setUserRole(role);
-      setCollectionName(collection);
-    } catch (error) {
+      if (!studentSnap.empty) {
+        const docSnap = studentSnap.docs[0];
+        const data = docSnap.data();
+        
+        setProfile({
+          docId: docSnap.id,
+          collectionName: "students",
+          role: "student",
+          name: data.name || data.Name || "",
+          email: data.email || "",
+          phone: data.phone || "",
+          address: data.address || "",
+          profileImage: data.profileImage || null,
+          dateOfBirth: data.dateOfBirth || "",
+          rollNo: data.rollNo || "",
+          semester: data.semester || "",
+          department: data.department || "",
+          parentPhone: data.parentPhone || "",
+          boardRollNo: data.boardRollNo || identifier,
+        });
+        
+        console.log("Found STUDENT profile, docId:", docSnap.id);
+        setLoading(false);
+        return;
+      }
+
+      // TRY 2: Search in teachers collection
+      const teacherQuery = query(
+        collection(db, "teachers"),
+        where("boardRollNo", "==", identifier)
+      );
+      const teacherSnap = await getDocs(teacherQuery);
+      
+      if (!teacherSnap.empty) {
+        const docSnap = teacherSnap.docs[0];
+        const data = docSnap.data();
+        
+        setProfile({
+          docId: docSnap.id,
+          collectionName: "teachers",
+          role: data.role || "teacher",
+          name: data.name || data.Name || "",
+          email: data.email || "",
+          phone: data.phone || "",
+          address: data.address || "",
+          profileImage: data.profileImage || null,
+          dateOfBirth: data.dateOfBirth || "",
+          department: data.department || "",
+          qualification: data.qualification || "",
+          experience: data.experience || "",
+          specialization: data.specialization || "",
+          designation: data.designation || "",
+        });
+        
+        console.log("Found TEACHER profile, docId:", docSnap.id);
+        setLoading(false);
+        return;
+      }
+
+      // TRY 3: Direct document lookup in students by ID
+      const studentDocRef = doc(db, "students", identifier);
+      const studentDocSnap = await getDoc(studentDocRef);
+      
+      if (studentDocSnap.exists()) {
+        const data = studentDocSnap.data();
+        
+        setProfile({
+          docId: studentDocSnap.id,
+          collectionName: "students",
+          role: "student",
+          name: data.name || data.Name || "",
+          email: data.email || "",
+          phone: data.phone || "",
+          address: data.address || "",
+          profileImage: data.profileImage || null,
+          dateOfBirth: data.dateOfBirth || "",
+          rollNo: data.rollNo || "",
+          semester: data.semester || "",
+          department: data.department || "",
+          parentPhone: data.parentPhone || "",
+          boardRollNo: data.boardRollNo || identifier,
+        });
+        
+        console.log("Found STUDENT profile by doc ID:", studentDocSnap.id);
+        setLoading(false);
+        return;
+      }
+
+      // TRY 4: Direct document lookup in teachers by ID
+      const teacherDocRef = doc(db, "teachers", identifier);
+      const teacherDocSnap = await getDoc(teacherDocRef);
+      
+      if (teacherDocSnap.exists()) {
+        const data = teacherDocSnap.data();
+        
+        setProfile({
+          docId: teacherDocSnap.id,
+          collectionName: "teachers",
+          role: data.role || "teacher",
+          name: data.name || data.Name || "",
+          email: data.email || "",
+          phone: data.phone || "",
+          address: data.address || "",
+          profileImage: data.profileImage || null,
+          dateOfBirth: data.dateOfBirth || "",
+          department: data.department || "",
+          qualification: data.qualification || "",
+          experience: data.experience || "",
+          specialization: data.specialization || "",
+          designation: data.designation || "",
+        });
+        
+        console.log("Found TEACHER profile by doc ID:", teacherDocSnap.id);
+        setLoading(false);
+        return;
+      }
+
+      Alert.alert("Error", "User profile not found");
+    } catch (error: any) {
       console.error("Error fetching profile:", error);
-      Alert.alert("Error", "Failed to load profile data");
+      Alert.alert("Error", "Failed to load profile: " + error.message);
     } finally {
       setLoading(false);
     }
-  }, [user]);
+  }, [params.boardRollNo, params.teacherId, params.userId]);
 
   useEffect(() => {
     fetchUserProfile();
@@ -156,7 +222,7 @@ export default function ProfileSettings() {
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
-      Alert.alert("Permission Needed", "Please grant camera roll permissions to upload a photo.");
+      Alert.alert("Permission Required", "Please allow access to your photo library.");
       return;
     }
 
@@ -164,67 +230,120 @@ export default function ProfileSettings() {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.5,
+      quality: 0.7,
     });
 
-    if (!result.canceled && result.assets[0].uri) {
+    if (!result.canceled && result.assets && result.assets[0].uri) {
       uploadProfileImage(result.assets[0].uri);
     }
   };
 
-  const uploadProfileImage = async (uri: string) => {
-    setUploadingPhoto(true);
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const storageRef = ref(storage, `profileImages/${user?.uid}`);
-      await uploadBytes(storageRef, blob);
-      const downloadURL = await getDownloadURL(storageRef);
-      
-      // Update Firestore with image URL
-      const userRef = doc(db, collectionName, user!.uid);
-      await updateDoc(userRef, { profileImage: downloadURL });
-      setProfileImage(downloadURL);
-      Alert.alert("Success", "Profile photo updated successfully!");
-    } catch (error) {
-      console.error("Upload error:", error);
-      Alert.alert("Error", "Failed to upload profile photo");
-    } finally {
-      setUploadingPhoto(false);
+ const uploadProfileImage = async (uri: string) => {
+  if (!profile.docId || !profile.collectionName) {
+    Alert.alert("Error", "User profile not loaded");
+    return;
+  }
+
+  setUploadingPhoto(true);
+  
+  try {
+    console.log("Starting upload...");
+    console.log("URI:", uri);
+    
+    // Convert image to blob
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    console.log("Blob size:", blob.size);
+    
+    // Create file path
+    const fileName = "profile_" + Date.now() + ".jpg";
+    const storageRef = ref(storage, "profileImages/" + fileName);
+    console.log("Storage path:", "profileImages/" + fileName);
+    
+    // Upload blob
+    const uploadResult = await uploadBytes(storageRef, blob);
+    console.log("Upload successful:", uploadResult);
+    
+    // Get download URL
+    const downloadURL = await getDownloadURL(storageRef);
+    console.log("Download URL:", downloadURL);
+    
+    // Update Firestore
+    const userRef = doc(db, profile.collectionName, profile.docId);
+    await updateDoc(userRef, {
+      profileImage: downloadURL,
+      updatedAt: new Date().toISOString()
+    });
+    
+    // Update local state
+    setProfile(prev => ({ ...prev, profileImage: downloadURL }));
+    Alert.alert("Success", "Profile photo updated!");
+    
+  } catch (error: any) {
+    console.error("Upload error:", error);
+    console.error("Error code:", error.code);
+    console.error("Error message:", error.message);
+    
+    if (error.code === "storage/unknown") {
+      Alert.alert(
+        "Storage Error",
+        "Please check:\n" +
+        "1. Firebase Storage is enabled\n" +
+        "2. Storage rules allow uploads\n" +
+        "3. Internet connection is stable"
+      );
+    } else {
+      Alert.alert("Upload Failed", error.message || "Unknown error");
     }
-  };
+  } finally {
+    setUploadingPhoto(false);
+  }
+};
 
   const handleSave = async () => {
-    if (!name.trim()) {
+    if (!profile.name.trim()) {
       Alert.alert("Error", "Name is required");
       return;
     }
 
+    // ✅ Check if docId and collectionName exist
+    if (!profile.docId) {
+      Alert.alert("Error", "Cannot save: Document ID is missing. Please reload the page.");
+      return;
+    }
+
+    if (!profile.collectionName) {
+      Alert.alert("Error", "Cannot save: Collection name is missing. Please reload the page.");
+      return;
+    }
+
+    console.log("Saving to:", profile.collectionName, "docId:", profile.docId);
+
     setSaving(true);
     try {
-      const userRef = doc(db, collectionName, user!.uid);
+      // ✅ CORRECT: 2 segments - collection name + document ID
+      const userRef = doc(db, profile.collectionName, profile.docId);
       
       const updateData: any = {
-        name: name.trim(),
-        phone: phone.trim(),
-        address: address.trim(),
-        bio: bio.trim(),
-        dateOfBirth: dateOfBirth.trim(),
-        emergencyContact: emergencyContact.trim(),
+        name: profile.name.trim(),
+        Name: profile.name.trim(),
+        phone: profile.phone.trim(),
+        address: profile.address.trim(),
+        dateOfBirth: profile.dateOfBirth.trim(),
         updatedAt: new Date().toISOString(),
       };
       
-      if (userRole === "student") {
-        updateData.rollNumber = rollNumber.trim();
-        updateData.semester = semester.trim();
-        updateData.parentPhone = parentPhone.trim();
-        updateData.admissionYear = admissionYear.trim();
-        updateData.department = department.trim();
+      if (profile.role === "student") {
+        updateData.rollNo = profile.rollNo?.trim() || "";
+        updateData.semester = profile.semester?.trim() || "";
+        updateData.department = profile.department?.trim() || "";
+        updateData.parentPhone = profile.parentPhone?.trim() || "";
       } else {
-        updateData.department = department.trim();
-        updateData.qualification = qualification.trim();
-        updateData.experience = experience.trim();
-        updateData.specialization = specialization.trim();
+        updateData.department = profile.department?.trim() || "";
+        updateData.qualification = profile.qualification?.trim() || "";
+        updateData.experience = profile.experience?.trim() || "";
+        updateData.specialization = profile.specialization?.trim() || "";
+        updateData.designation = profile.designation?.trim() || "";
       }
       
       await updateDoc(userRef, updateData);
@@ -239,8 +358,12 @@ export default function ProfileSettings() {
     }
   };
 
-  const getRoleDisplayName = () => {
-    switch (userRole) {
+  const updateField = (field: keyof UserProfile, value: string) => {
+    setProfile(prev => ({ ...prev, [field]: value }));
+  };
+
+  const getRoleDisplayName = (): string => {
+    switch (profile.role) {
       case "hod": return "Head of Department";
       case "class_teacher": return "Class Teacher";
       case "teacher": return "Teacher";
@@ -249,15 +372,17 @@ export default function ProfileSettings() {
     }
   };
 
-  const getRoleIcon = () => {
-    switch (userRole) {
+  const getRoleIcon = (): any => {
+    switch (profile.role) {
       case "hod": return "shield-checkmark-outline";
       case "class_teacher": return "briefcase-outline";
       case "teacher": return "school-outline";
-      case "student": return "person-outline";
-      default: return "person-circle-outline";
+      case "student": return "school-outline";
+      default: return "person-outline";
     }
   };
+
+  const isTeacher = profile.role !== "student";
 
   if (loading) {
     return (
@@ -272,41 +397,60 @@ export default function ProfileSettings() {
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
         <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Profile Settings</Text>
-          <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
+          <TouchableOpacity onPress={toggleTheme} style={styles.headerButton}>
             <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       </LinearGradient>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Profile Header with Photo Upload */}
+        {/* Profile Photo */}
         <View style={styles.profileHeader}>
-          <TouchableOpacity onPress={editMode ? pickImage : undefined} disabled={!editMode} activeOpacity={0.7}>
+          <TouchableOpacity 
+            onPress={editMode ? pickImage : undefined} 
+            disabled={!editMode}
+            activeOpacity={0.8}
+          >
             <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
-              {profileImage ? (
-                <Image source={{ uri: profileImage }} style={styles.avatarImage} />
+              {profile.profileImage ? (
+                <Image source={{ uri: profile.profileImage }} style={styles.avatarImage} />
               ) : (
-                <Text style={styles.avatarText}>{name.charAt(0) || "U"}</Text>
+                <Ionicons name="person" size={50} color="#fff" />
               )}
               {editMode && (
-                <View style={styles.cameraIcon}>
+                <View style={styles.cameraIconContainer}>
                   <Ionicons name="camera" size={16} color="#fff" />
                 </View>
               )}
             </View>
           </TouchableOpacity>
+          
           {uploadingPhoto && (
-            <ActivityIndicator style={styles.uploadingIndicator} color={colors.primary} />
+            <View style={styles.uploadingContainer}>
+              <ActivityIndicator color={colors.primary} size="small" />
+              <Text style={[styles.uploadingText, { color: colors.textLight }]}>Uploading...</Text>
+            </View>
           )}
-          <Text style={[styles.profileName, { color: colors.textDark }]}>{name || "Not set"}</Text>
+          
+          {editMode && !uploadingPhoto && (
+            <TouchableOpacity onPress={pickImage} style={styles.changePhotoBtn}>
+              <Ionicons name="camera-outline" size={16} color={colors.primary} />
+              <Text style={[styles.changePhotoText, { color: colors.primary }]}>Change Photo</Text>
+            </TouchableOpacity>
+          )}
+          
+          <Text style={[styles.profileName, { color: colors.textDark }]}>
+            {profile.name || "User"}
+          </Text>
           <View style={[styles.roleBadge, { backgroundColor: colors.primary + "20" }]}>
             <Ionicons name={getRoleIcon()} size={14} color={colors.primary} />
             <Text style={[styles.roleText, { color: colors.primary }]}>{getRoleDisplayName()}</Text>
           </View>
+          
           {!editMode && (
             <TouchableOpacity 
               style={[styles.editButton, { backgroundColor: colors.primary }]}
@@ -318,41 +462,27 @@ export default function ProfileSettings() {
           )}
         </View>
 
-        {/* Profile Form */}
+        {/* Form */}
         <View style={[styles.formCard, { backgroundColor: colors.card }]}>
           {editMode ? (
             <>
-              <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Basic Information</Text>
-              
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.textDark }]}>Full Name *</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                  value={name}
-                  onChangeText={setName}
+                  value={profile.name}
+                  onChangeText={(v) => updateField("name", v)}
                   placeholder="Enter your full name"
                   placeholderTextColor={colors.textLight}
                 />
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.textDark }]}>Email</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark, opacity: 0.7 }]}
-                  value={email}
-                  editable={false}
-                  placeholder="Email"
-                  placeholderTextColor={colors.textLight}
-                />
-                <Text style={[styles.hintText, { color: colors.textLight }]}>Email cannot be changed</Text>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.textDark }]}>Phone Number *</Text>
+                <Text style={[styles.label, { color: colors.textDark }]}>Phone Number</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                  value={phone}
-                  onChangeText={setPhone}
+                  value={profile.phone}
+                  onChangeText={(v) => updateField("phone", v)}
                   placeholder="Enter phone number"
                   placeholderTextColor={colors.textLight}
                   keyboardType="phone-pad"
@@ -363,8 +493,8 @@ export default function ProfileSettings() {
                 <Text style={[styles.label, { color: colors.textDark }]}>Address</Text>
                 <TextInput
                   style={[styles.input, styles.textArea, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                  value={address}
-                  onChangeText={setAddress}
+                  value={profile.address}
+                  onChangeText={(v) => updateField("address", v)}
                   placeholder="Enter your address"
                   placeholderTextColor={colors.textLight}
                   multiline
@@ -373,65 +503,81 @@ export default function ProfileSettings() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.textDark }]}>Bio / About</Text>
+                <Text style={[styles.label, { color: colors.textDark }]}>Date of Birth</Text>
                 <TextInput
-                  style={[styles.input, styles.textArea, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                  value={bio}
-                  onChangeText={setBio}
-                  placeholder="Tell us about yourself"
+                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                  value={profile.dateOfBirth}
+                  onChangeText={(v) => updateField("dateOfBirth", v)}
+                  placeholder="YYYY-MM-DD"
                   placeholderTextColor={colors.textLight}
-                  multiline
-                  numberOfLines={3}
                 />
               </View>
 
-              <View style={styles.row}>
-                <View style={[styles.inputGroup, { flex: 1 }]}>
-                  <Text style={[styles.label, { color: colors.textDark }]}>Date of Birth</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                    value={dateOfBirth}
-                    onChangeText={setDateOfBirth}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor={colors.textLight}
-                  />
-                </View>
-                <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
-                  <Text style={[styles.label, { color: colors.textDark }]}>Emergency Contact</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                    value={emergencyContact}
-                    onChangeText={setEmergencyContact}
-                    placeholder="Emergency number"
-                    placeholderTextColor={colors.textLight}
-                    keyboardType="phone-pad"
-                  />
-                </View>
-              </View>
+              {/* Student Fields */}
+              {!isTeacher && (
+                <>
+                  <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Academic Information</Text>
+                  
+                  <View style={styles.row}>
+                    <View style={[styles.inputGroup, { flex: 1 }]}>
+                      <Text style={[styles.label, { color: colors.textDark }]}>Roll No</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                        value={profile.rollNo || ""}
+                        onChangeText={(v) => updateField("rollNo", v)}
+                        placeholder="Roll number"
+                        placeholderTextColor={colors.textLight}
+                      />
+                    </View>
+                    <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
+                      <Text style={[styles.label, { color: colors.textDark }]}>Semester</Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                        value={profile.semester || ""}
+                        onChangeText={(v) => updateField("semester", v)}
+                        placeholder="Semester"
+                        placeholderTextColor={colors.textLight}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
 
-              {/* Teacher Specific Fields */}
-              {userRole !== "student" && (
+                  <View style={styles.inputGroup}>
+                    <Text style={[styles.label, { color: colors.textDark }]}>Department</Text>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                      value={profile.department || ""}
+                      onChangeText={(v) => updateField("department", v)}
+                      placeholder="e.g., Computer Engineering"
+                      placeholderTextColor={colors.textLight}
+                    />
+                  </View>
+                </>
+              )}
+
+              {/* Teacher Fields */}
+              {isTeacher && (
                 <>
                   <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Professional Information</Text>
                   
                   <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Department *</Text>
+                    <Text style={[styles.label, { color: colors.textDark }]}>Department</Text>
                     <TextInput
                       style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={department}
-                      onChangeText={setDepartment}
+                      value={profile.department || ""}
+                      onChangeText={(v) => updateField("department", v)}
                       placeholder="e.g., Computer Science"
                       placeholderTextColor={colors.textLight}
                     />
                   </View>
 
                   <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Qualification</Text>
+                    <Text style={[styles.label, { color: colors.textDark }]}>Designation</Text>
                     <TextInput
                       style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={qualification}
-                      onChangeText={setQualification}
-                      placeholder="e.g., M.Tech, Ph.D"
+                      value={profile.designation || ""}
+                      onChangeText={(v) => updateField("designation", v)}
+                      placeholder="e.g., Professor"
                       placeholderTextColor={colors.textLight}
                     />
                   </View>
@@ -441,8 +587,8 @@ export default function ProfileSettings() {
                       <Text style={[styles.label, { color: colors.textDark }]}>Experience (Years)</Text>
                       <TextInput
                         style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={experience}
-                        onChangeText={setExperience}
+                        value={profile.experience || ""}
+                        onChangeText={(v) => updateField("experience", v)}
                         placeholder="Years"
                         placeholderTextColor={colors.textLight}
                         keyboardType="numeric"
@@ -452,77 +598,10 @@ export default function ProfileSettings() {
                       <Text style={[styles.label, { color: colors.textDark }]}>Specialization</Text>
                       <TextInput
                         style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={specialization}
-                        onChangeText={setSpecialization}
-                        placeholder="e.g., AI"
+                        value={profile.specialization || ""}
+                        onChangeText={(v) => updateField("specialization", v)}
+                        placeholder="e.g., AI, ML"
                         placeholderTextColor={colors.textLight}
-                      />
-                    </View>
-                  </View>
-                </>
-              )}
-
-              {/* Student Specific Fields */}
-              {userRole === "student" && (
-                <>
-                  <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Academic Information</Text>
-                  
-                  <View style={styles.row}>
-                    <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={[styles.label, { color: colors.textDark }]}>Roll Number *</Text>
-                      <TextInput
-                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={rollNumber}
-                        onChangeText={setRollNumber}
-                        placeholder="Roll number"
-                        placeholderTextColor={colors.textLight}
-                      />
-                    </View>
-                    <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
-                      <Text style={[styles.label, { color: colors.textDark }]}>Semester *</Text>
-                      <TextInput
-                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={semester}
-                        onChangeText={setSemester}
-                        placeholder="Semester"
-                        placeholderTextColor={colors.textLight}
-                        keyboardType="numeric"
-                      />
-                    </View>
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Department *</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={department}
-                      onChangeText={setDepartment}
-                      placeholder="e.g., Computer Science"
-                      placeholderTextColor={colors.textLight}
-                    />
-                  </View>
-
-                  <View style={styles.row}>
-                    <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={[styles.label, { color: colors.textDark }]}>{"Parent's Phone"}</Text>
-                      <TextInput
-                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={parentPhone}
-                        onChangeText={setParentPhone}
-                        placeholder="Parent's contact"
-                        placeholderTextColor={colors.textLight}
-                        keyboardType="phone-pad"
-                      />
-                    </View>
-                    <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
-                      <Text style={[styles.label, { color: colors.textDark }]}>Admission Year</Text>
-                      <TextInput
-                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={admissionYear}
-                        onChangeText={setAdmissionYear}
-                        placeholder="e.g., 2024"
-                        placeholderTextColor={colors.textLight}
-                        keyboardType="numeric"
                       />
                     </View>
                   </View>
@@ -549,124 +628,29 @@ export default function ProfileSettings() {
               </View>
             </>
           ) : (
-            // View Mode - Display all information
+            /* View Mode */
             <>
-              <View style={styles.infoSection}>
-                <Text style={[styles.infoLabel, { color: colors.textLight }]}>Email</Text>
-                <Text style={[styles.infoValue, { color: colors.textDark }]}>{email || "Not set"}</Text>
-              </View>
+              <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Personal Information</Text>
+              
+              <InfoRow icon="call-outline" label="Phone" value={profile.phone} colors={colors} />
+              <InfoRow icon="home-outline" label="Address" value={profile.address} colors={colors} />
+              <InfoRow icon="calendar-outline" label="Date of Birth" value={profile.dateOfBirth} colors={colors} />
 
-              <View style={styles.infoSection}>
-                <Text style={[styles.infoLabel, { color: colors.textLight }]}>Phone</Text>
-                <Text style={[styles.infoValue, { color: colors.textDark }]}>{phone || "Not set"}</Text>
-              </View>
-
-              <View style={styles.infoSection}>
-                <Text style={[styles.infoLabel, { color: colors.textLight }]}>Address</Text>
-                <Text style={[styles.infoValue, { color: colors.textDark }]}>{address || "Not set"}</Text>
-              </View>
-
-              {bio && (
-                <View style={styles.infoSection}>
-                  <Text style={[styles.infoLabel, { color: colors.textLight }]}>About Me</Text>
-                  <Text style={[styles.infoValue, { color: colors.textDark }]}>{bio}</Text>
-                </View>
-              )}
-
-              {(dateOfBirth || emergencyContact) && (
-                <>
-                  <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Personal Details</Text>
-                  
-                  {dateOfBirth && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Date of Birth</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{dateOfBirth}</Text>
-                    </View>
-                  )}
-                  
-                  {emergencyContact && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Emergency Contact</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{emergencyContact}</Text>
-                    </View>
-                  )}
-                </>
-              )}
-
-              {/* Teacher View Mode */}
-              {userRole !== "student" && (department || qualification || experience || specialization) && (
-                <>
-                  <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Professional Details</Text>
-                  
-                  {department && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Department</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{department}</Text>
-                    </View>
-                  )}
-                  
-                  {qualification && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Qualification</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{qualification}</Text>
-                    </View>
-                  )}
-                  
-                  {experience && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Experience</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{experience} years</Text>
-                    </View>
-                  )}
-                  
-                  {specialization && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Specialization</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{specialization}</Text>
-                    </View>
-                  )}
-                </>
-              )}
-
-              {/* Student View Mode */}
-              {userRole === "student" && (
+              {!isTeacher ? (
                 <>
                   <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Academic Details</Text>
-                  
-                  {rollNumber && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Roll Number</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{rollNumber}</Text>
-                    </View>
-                  )}
-                  
-                  {semester && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Semester</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{semester}</Text>
-                    </View>
-                  )}
-                  
-                  {department && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Department</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{department}</Text>
-                    </View>
-                  )}
-                  
-                  {parentPhone && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>{"Parent's Phone"}</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{parentPhone}</Text>
-                    </View>
-                  )}
-                  
-                  {admissionYear && (
-                    <View style={styles.infoSection}>
-                      <Text style={[styles.infoLabel, { color: colors.textLight }]}>Admission Year</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{admissionYear}</Text>
-                    </View>
-                  )}
+                  <InfoRow icon="id-card-outline" label="Roll Number" value={profile.rollNo} colors={colors} />
+                  <InfoRow icon="book-outline" label="Semester" value={profile.semester} colors={colors} />
+                  <InfoRow icon="business-outline" label="Department" value={profile.department} colors={colors} />
+                  <InfoRow icon="barcode-outline" label="Board Roll No" value={profile.boardRollNo} colors={colors} />
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Professional Details</Text>
+                  <InfoRow icon="business-outline" label="Department" value={profile.department} colors={colors} />
+                  <InfoRow icon="briefcase-outline" label="Designation" value={profile.designation} colors={colors} />
+                  <InfoRow icon="time-outline" label="Experience" value={profile.experience ? profile.experience + " years" : undefined} colors={colors} />
+                  <InfoRow icon="bulb-outline" label="Specialization" value={profile.specialization} colors={colors} />
                 </>
               )}
             </>
@@ -677,68 +661,70 @@ export default function ProfileSettings() {
   );
 }
 
+// Info Row Component
+const InfoRow = ({ icon, label, value, colors }: any) => {
+  if (!value) return null;
+  
+  return (
+    <View style={infoStyles.infoSection}>
+      <View style={infoStyles.infoRow}>
+        <Ionicons name={icon} size={18} color={colors.primary} />
+        <View style={infoStyles.infoTextContainer}>
+          <Text style={[infoStyles.infoLabel, { color: colors.textLight }]}>{label}</Text>
+          <Text style={[infoStyles.infoValue, { color: colors.textDark }]}>{value}</Text>
+        </View>
+      </View>
+    </View>
+  );
+};
+
+const infoStyles = StyleSheet.create({
+  infoSection: { marginBottom: 15, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#f0f0f0" },
+  infoRow: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  infoTextContainer: { flex: 1 },
+  infoLabel: { fontSize: 11, marginBottom: 2 },
+  infoValue: { fontSize: 15, fontWeight: "500" },
+});
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 10 },
   scrollContent: { paddingBottom: 40 },
-  
   header: { padding: 20, paddingTop: 40, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
   headerContent: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
-  themeToggle: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
+  headerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
   headerTitle: { fontSize: 20, fontWeight: "bold", color: "#fff" },
-  
-  profileHeader: { alignItems: "center", paddingVertical: 30 },
-  avatarContainer: { 
-    width: 100, 
-    height: 100, 
-    borderRadius: 50, 
-    justifyContent: "center", 
-    alignItems: "center", 
-    marginBottom: 15,
-    position: "relative",
+  profileHeader: { alignItems: "center", paddingVertical: 25 },
+  avatarContainer: { width: 110, height: 110, borderRadius: 55, justifyContent: "center", alignItems: "center", position: "relative" },
+  avatarImage: { width: 110, height: 110, borderRadius: 55 },
+  cameraIconContainer: {
+    position: "absolute", bottom: 0, right: 0,
+    backgroundColor: "#4CAF50", borderRadius: 15, width: 32, height: 32,
+    justifyContent: "center", alignItems: "center", borderWidth: 3, borderColor: "#fff",
   },
-  avatarImage: { width: 100, height: 100, borderRadius: 50 },
-  avatarText: { color: "#fff", fontSize: 40, fontWeight: "bold" },
-  cameraIcon: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#4CAF50",
-    borderRadius: 15,
-    width: 30,
-    height: 30,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#fff",
+  uploadingContainer: { flexDirection: "row", alignItems: "center", marginTop: 8, gap: 8 },
+  uploadingText: { fontSize: 12 },
+  changePhotoBtn: {
+    flexDirection: "row", alignItems: "center", marginTop: 10, gap: 6,
+    paddingVertical: 6, paddingHorizontal: 12, borderRadius: 15, borderWidth: 1, borderColor: "#ddd",
   },
-  uploadingIndicator: { position: "absolute", bottom: 20, right: width / 2 - 50 },
-  profileName: { fontSize: 24, fontWeight: "bold", marginBottom: 8 },
-  roleBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, gap: 6 },
+  changePhotoText: { fontSize: 13, fontWeight: "600" },
+  profileName: { fontSize: 22, fontWeight: "bold", marginTop: 12 },
+  roleBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, gap: 6, marginTop: 8 },
   roleText: { fontSize: 12, fontWeight: "600" },
-  editButton: { flexDirection: "row", alignItems: "center", marginTop: 15, paddingHorizontal: 20, paddingVertical: 8, borderRadius: 25, gap: 8 },
+  editButton: { flexDirection: "row", alignItems: "center", marginTop: 15, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, gap: 8 },
   editButtonText: { color: "#fff", fontSize: 14, fontWeight: "600" },
-  
-  formCard: { margin: 15, padding: 20, borderRadius: 20 },
+  formCard: { margin: 15, padding: 20, borderRadius: 20, elevation: 2 },
   sectionTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 15, marginTop: 5 },
-  
   inputGroup: { marginBottom: 15 },
-  label: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
+  label: { fontSize: 14, fontWeight: "600", marginBottom: 6 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 12, fontSize: 16 },
   textArea: { minHeight: 80, textAlignVertical: "top" },
-  hintText: { fontSize: 11, marginTop: 4 },
-  
   row: { flexDirection: "row", gap: 10 },
-  
   buttonRow: { flexDirection: "row", gap: 12, marginTop: 20 },
-  cancelButton: { flex: 1, paddingVertical: 12, borderRadius: 12, borderWidth: 1, alignItems: "center" },
+  cancelButton: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: "center" },
   cancelButtonText: { fontSize: 16, fontWeight: "600" },
-  saveButton: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
+  saveButton: { flex: 1, paddingVertical: 14, borderRadius: 12, alignItems: "center" },
   saveButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
-  
-  infoSection: { marginBottom: 15, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: "#eee" },
-  infoLabel: { fontSize: 12, marginBottom: 4 },
-  infoValue: { fontSize: 16, fontWeight: "500" },
 });
