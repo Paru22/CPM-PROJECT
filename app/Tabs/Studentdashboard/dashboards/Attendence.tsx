@@ -1,342 +1,270 @@
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { doc, getDoc } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Calendar } from "react-native-calendars";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../../../config/firebaseConfig.native";
-import { useTheme } from "../../../../context/ThemeContext"; // adjust path
-
-import Animated, {
-    FadeIn,
-    FadeInDown,
-    useAnimatedStyle,
-    useSharedValue,
-    withTiming,
-} from "react-native-reanimated";
+import { useTheme } from "../../../../context/ThemeContext";
+import { Picker } from "@react-native-picker/picker";
 
 interface AttendanceItem {
   id: string;
   date: string;
-  subject: string;
+  subjectName: string;
+  subjectCode: string;
   status: "Present" | "Absent";
 }
 
 export default function AttendancePage() {
   const router = useRouter();
-  const { studentId } = useLocalSearchParams();
+  const params = useLocalSearchParams<any>();
   const { colors } = useTheme();
 
+  const studentId = String(params.studentId || params.boardRollNo || "");
+
   const [attendanceData, setAttendanceData] = useState<AttendanceItem[]>([]);
+  const [filteredData, setFilteredData] = useState<AttendanceItem[]>([]);
+  const [subjects, setSubjects] = useState<string[]>([]);
+  const [selectedSubject, setSelectedSubject] = useState("All");
   const [loading, setLoading] = useState(true);
 
-  const progress = useSharedValue(0);
+  const fetchAttendance = useCallback(async () => {
+    if (!studentId) {
+      Alert.alert("Error", "No student identifier found");
+      setLoading(false);
+      return;
+    }
 
-  useEffect(() => {
-    const fetchAttendance = async () => {
-      if (!studentId) {
-        Alert.alert("Error", "No student ID provided.");
-        setLoading(false);
-        return;
-      }
+    try {
+      console.log("Fetching attendance for studentId:", studentId);
 
-      try {
-        const studentDocRef = doc(db, "students", studentId as string);
-        const studentDocSnap = await getDoc(studentDocRef);
+      const q = query(
+        collection(db, "attendance"),
+        where("studentId", "==", studentId)
+      );
 
-        if (studentDocSnap.exists()) {
-          const data = studentDocSnap.data();
-          const attendanceMap = data.attendance || {};
+      const snapshot = await getDocs(q);
+      console.log("Attendance docs found:", snapshot.size);
 
-          const dataArray: AttendanceItem[] = Object.entries(
-            attendanceMap
-          ).map(([date, status], index) => {
-            const normalized = String(status).trim().toLowerCase();
+      const temp: AttendanceItem[] = [];
+      const subjectSet = new Set<string>();
 
-            return {
-              id: `${studentId}-${index}`,
-              date,
-              subject: "General",
-              status: normalized === "present" ? "Present" : "Absent",
-            };
-          });
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (!data.date || !data.subjectName) return;
 
-          setAttendanceData(dataArray);
-        }
-      } catch {
-  Alert.alert("Error", "Failed to fetch attendance.");
-}finally {
-        setLoading(false);
-      }
-    };
+        const status = String(data.status).toLowerCase();
+        const subjectLabel = data.subjectName + " (" + (data.subjectCode || "") + ")";
 
-    fetchAttendance();
+        temp.push({
+          id: docSnap.id,
+          date: data.date,
+          subjectName: data.subjectName,
+          subjectCode: data.subjectCode || "",
+          status: status === "present" ? "Present" : "Absent",
+        });
+
+        subjectSet.add(subjectLabel);
+      });
+
+      temp.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+      setAttendanceData(temp);
+      setFilteredData(temp);
+      setSubjects(["All", ...Array.from(subjectSet)]);
+    } catch (err) {
+      const error = err as any;
+      console.error("Error fetching attendance:", error);
+      Alert.alert("Error", "Failed to fetch attendance: " + error.message);
+    } finally {
+      setLoading(false);
+    }
   }, [studentId]);
 
-  // Data
-  const totalClasses = attendanceData.length;
-  const presentCount = attendanceData.filter(
-    (i) => i.status === "Present"
-  ).length;
-  const absentCount = attendanceData.filter(
-    (i) => i.status === "Absent"
-  ).length;
-
-  const percentage =
-    totalClasses > 0 ? presentCount / totalClasses : 0;
-
-  // Animate progress
   useEffect(() => {
-    progress.value = withTiming(percentage, { duration: 800 });
-  }, [percentage, progress]);
+    fetchAttendance();
+  }, [fetchAttendance]);
 
-  const progressStyle = useAnimatedStyle(() => ({
-    width: `${progress.value * 100}%`,
-  }));
+  useEffect(() => {
+    if (selectedSubject === "All") {
+      setFilteredData(attendanceData);
+    } else {
+      setFilteredData(
+        attendanceData.filter(
+          (i) => i.subjectName + " (" + i.subjectCode + ")" === selectedSubject
+        )
+      );
+    }
+  }, [selectedSubject, attendanceData]);
 
-  // Calendar marked dates
+  const total = filteredData.length;
+  const present = filteredData.filter((i) => i.status === "Present").length;
+  const absent = filteredData.filter((i) => i.status === "Absent").length;
+  const percentage = total > 0 ? (present / total) * 100 : 0;
+
   const markedDates: any = {};
-  attendanceData.forEach((item) => {
+  filteredData.forEach((item) => {
+    if (!item.date) return;
     markedDates[item.date] = {
       selected: true,
-      selectedColor:
-        item.status === "Present" ? "#4CAF50" : "#F44336",
+      selectedColor: item.status === "Present" ? "#4CAF50" : "#F44336",
     };
   });
 
-  // Loading
   if (loading) {
     return (
-      <View style={[styles.loaderContainer, { backgroundColor: colors.background }]}>
+      <View style={[styles.loader, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={{ color: colors.textDark }}>Loading attendance...</Text>
       </View>
     );
   }
 
   return (
-    <View style={[styles.fullScreen, { backgroundColor: colors.background }]}>
-      <StatusBar barStyle={colors.background === "#C7D8E9" ? "dark-content" : "light-content"} backgroundColor={colors.background} />
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Text style={[styles.title, { color: colors.textDark }]}>My Attendance</Text>
 
-      <SafeAreaView style={styles.safeArea}>
-        <ScrollView
-          contentContainerStyle={styles.scrollContainer}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Title */}
-          <Animated.Text entering={FadeIn} style={[styles.title, { color: colors.textDark }]}>
-            📋 My Attendance
-          </Animated.Text>
-
-          {/* Summary Cards */}
-          <View style={styles.summaryRow}>
-            <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
-              <Text style={[styles.summaryNumber, { color: colors.textDark }]}>{totalClasses}</Text>
-              <Text style={{ color: colors.textLight }}>Total</Text>
-            </View>
-
-            <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
-              <Text style={[styles.summaryNumber, { color: colors.textDark }]}>{presentCount}</Text>
-              <Text style={{ color: colors.textLight }}>Present</Text>
-            </View>
-
-            <View style={[styles.summaryCard, { backgroundColor: colors.card }]}>
-              <Text style={[styles.summaryNumber, { color: colors.textDark }]}>{absentCount}</Text>
-              <Text style={{ color: colors.textLight }}>Absent</Text>
-            </View>
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.statValue, { color: colors.textDark }]}>{total}</Text>
+            <Text style={[styles.statLabel, { color: colors.textLight }]}>Total</Text>
           </View>
-
-          {/* Progress Bar */}
-          <View style={[styles.progressContainer, { backgroundColor: colors.card }]}>
-            <Text style={[styles.progressTitle, { color: colors.textDark }]}>📊 Attendance</Text>
-
-            <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
-              <Animated.View style={[styles.progressFill, progressStyle]} />
-            </View>
-
-            <Text style={[styles.percent, { color: colors.textDark }]}>
-              {(percentage * 100).toFixed(2)}%
+          <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.statValue, { color: "#4CAF50" }]}>{present}</Text>
+            <Text style={[styles.statLabel, { color: colors.textLight }]}>Present</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+            <Text style={[styles.statValue, { color: "#F44336" }]}>{absent}</Text>
+            <Text style={[styles.statLabel, { color: colors.textLight }]}>Absent</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+            <Text style={[
+              styles.statValue,
+              { color: percentage >= 75 ? "#4CAF50" : "#F44336" }
+            ]}>
+              {percentage.toFixed(1)}%
             </Text>
+            <Text style={[styles.statLabel, { color: colors.textLight }]}>Percent</Text>
           </View>
+        </View>
 
-          {/* Calendar */}
-          <View style={[styles.calendarBox, { backgroundColor: colors.card }]}>
-            <Calendar
-              markedDates={markedDates}
-              theme={{
-                calendarBackground: colors.card,
-                textSectionTitleColor: colors.textDark,
-                dayTextColor: colors.textDark,
-                todayTextColor: colors.primary,
-                selectedDayBackgroundColor: colors.primary,
-                selectedDayTextColor: "#fff",
-                monthTextColor: colors.textDark,
-                arrowColor: colors.primary,
-              }}
-            />
-          </View>
+        <View style={[styles.progressBar, { backgroundColor: colors.border }]}>
+          <View
+            style={[
+              styles.progressFill,
+              {
+                width: percentage + "%" as any,
+                backgroundColor: percentage >= 75 ? "#4CAF50" : percentage >= 60 ? "#FF9800" : "#F44336",
+              },
+            ]}
+          />
+        </View>
 
-          {/* Attendance List */}
-          {attendanceData.map((item, index) => {
-            const isPresent = item.status === "Present";
-
-            return (
-              <Animated.View
-                key={item.id}
-                entering={FadeInDown.delay(index * 80)}
-                style={[styles.card, { backgroundColor: colors.card }]}
-              >
-                <View style={styles.row}>
-                  <Text style={[styles.date, { color: colors.textLight }]}>
-                    📅 {new Date(item.date).toDateString()}
-                  </Text>
-
-                  <View
-                    style={[
-                      styles.badge,
-                      {
-                        backgroundColor: isPresent ? "#d4edda" : "#f8d7da",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={{
-                        color: isPresent ? "green" : "red",
-                        fontWeight: "bold",
-                      }}
-                    >
-                      {item.status}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={[styles.subject, { color: colors.textDark }]}>📘 {item.subject}</Text>
-              </Animated.View>
-            );
-          })}
-
-          {/* Back Button */}
-          <TouchableOpacity
-            style={[styles.backButton, { backgroundColor: colors.primary }]}
-            onPress={() => router.back()}
+        <View style={[styles.pickerBox, { borderColor: colors.border }]}>
+          <Picker
+            selectedValue={selectedSubject}
+            onValueChange={(value) => setSelectedSubject(value)}
+            style={{ color: colors.textDark }}
           >
-            <Text style={styles.backText}>⬅ Back</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </SafeAreaView>
-    </View>
+            {subjects.map((sub) => (
+              <Picker.Item key={sub} label={sub} value={sub} />
+            ))}
+          </Picker>
+        </View>
+
+        <Calendar
+          markedDates={markedDates}
+          theme={{
+            backgroundColor: colors.background,
+            calendarBackground: colors.card,
+            textSectionTitleColor: colors.textDark,
+            dayTextColor: colors.textDark,
+            todayTextColor: colors.primary,
+          }}
+        />
+
+        <Text style={[styles.listTitle, { color: colors.textDark }]}>Attendance Records</Text>
+
+        {filteredData.length === 0 ? (
+          <View style={[styles.emptyContainer, { backgroundColor: colors.card }]}>
+            <Text style={[styles.emptyText, { color: colors.textLight }]}>No attendance records found</Text>
+          </View>
+        ) : (
+          filteredData.map((item) => (
+            <View key={item.id} style={[styles.attendanceCard, { backgroundColor: colors.card }]}>
+              <View style={styles.attendanceCardHeader}>
+                <Text style={[styles.dateText, { color: colors.textDark }]}>
+                  {new Date(item.date).toDateString()}
+                </Text>
+                <View style={[
+                  styles.statusBadge,
+                  { backgroundColor: item.status === "Present" ? "#E8F5E9" : "#FFEBEE" }
+                ]}>
+                  <Text style={{
+                    color: item.status === "Present" ? "#4CAF50" : "#F44336",
+                    fontWeight: "bold",
+                    fontSize: 12,
+                  }}>
+                    {item.status}
+                  </Text>
+                </View>
+              </View>
+              <Text style={[styles.subjectText, { color: colors.textLight }]}>
+                {item.subjectName} ({item.subjectCode})
+              </Text>
+            </View>
+          ))
+        )}
+
+        <TouchableOpacity
+          onPress={() => router.back()}
+          style={[styles.backBtn, { backgroundColor: colors.primary }]}
+        >
+          <Text style={{ color: "#fff", fontWeight: "600" }}>Go Back</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
-// Styles – no deprecated shadow* or textShadow* props
 const styles = StyleSheet.create({
-  fullScreen: {
-    flex: 1,
+  container: { flex: 1 },
+  loader: { flex: 1, justifyContent: "center", alignItems: "center" },
+  scrollContent: { padding: 15, paddingBottom: 40 },
+  title: { fontSize: 24, fontWeight: "bold", textAlign: "center", marginBottom: 15 },
+  statsRow: { flexDirection: "row", gap: 8, marginBottom: 15 },
+  statCard: {
+    flex: 1, alignItems: "center", padding: 10, borderRadius: 12, elevation: 1,
   },
-  safeArea: {
-    flex: 1,
+  statValue: { fontSize: 18, fontWeight: "bold" },
+  statLabel: { fontSize: 10, marginTop: 2 },
+  progressBar: { height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 15 },
+  progressFill: { height: "100%", borderRadius: 4 },
+  pickerBox: { borderWidth: 1, borderRadius: 10, marginBottom: 15, overflow: "hidden" },
+  listTitle: { fontSize: 18, fontWeight: "bold", marginTop: 15, marginBottom: 10 },
+  attendanceCard: {
+    borderRadius: 12, padding: 14, marginBottom: 8, elevation: 1,
   },
-  scrollContainer: {
-    padding: 16,
-    paddingBottom: 40,
+  attendanceCardHeader: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 6,
   },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
+  dateText: { fontSize: 14, fontWeight: "600" },
+  statusBadge: {
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12,
   },
-  title: {
-    fontSize: 26,
-    fontWeight: "bold",
-    textAlign: "center",
-    marginBottom: 15,
-  },
-  summaryRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 15,
-  },
-  summaryCard: {
-    flex: 1,
-    margin: 5,
-    padding: 15,
-    borderRadius: 10,
-    alignItems: "center",
-    // no shadow* props – using elevation only for Android, no deprecation warnings
-    elevation: 2,
-  },
-  summaryNumber: {
-    fontSize: 20,
-    fontWeight: "bold",
-  },
-  progressContainer: {
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 15,
-    elevation: 2,
-  },
-  progressTitle: {
-    marginBottom: 10,
-  },
-  progressBar: {
-    height: 10,
-    borderRadius: 10,
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#4CAF50",
-  },
-  percent: {
-    textAlign: "center",
-    marginTop: 8,
-    fontWeight: "bold",
-  },
-  calendarBox: {
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 15,
-    elevation: 2,
-  },
-  card: {
-    padding: 15,
-    borderRadius: 10,
-    marginBottom: 10,
-    elevation: 1,
-  },
-  row: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  date: {
-    // no textShadow
-  },
-  subject: {
-    marginTop: 5,
-    fontWeight: "600",
-  },
-  badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  backButton: {
-    padding: 12,
-    borderRadius: 25,
-    alignItems: "center",
-    marginTop: 20,
-  },
-  backText: {
-    color: "#fff",
-    fontWeight: "bold",
+  subjectText: { fontSize: 13 },
+  emptyContainer: { padding: 30, borderRadius: 12, alignItems: "center" },
+  emptyText: { fontSize: 14 },
+  backBtn: {
+    padding: 14, alignItems: "center", borderRadius: 12, marginTop: 20,
   },
 });

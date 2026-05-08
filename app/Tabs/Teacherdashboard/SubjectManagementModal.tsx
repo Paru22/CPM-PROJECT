@@ -1,146 +1,142 @@
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import {
-    addDoc,
-    collection,
-    deleteDoc,
-    doc,
-    getDoc,
-    getDocs,
-    query,
-    where,
-} from 'firebase/firestore';
-import React, { useCallback, useEffect, useState } from 'react';
+  collection,
+  deleteDoc,
+  doc,
+  getDocs,
+  query,
+  where,
+  setDoc,
+  addDoc,
+} from "firebase/firestore";
+import React, { useEffect, useState, useCallback } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
-} from 'react-native';
-import { db } from '../../../config/firebaseConfig.native';
+  ActivityIndicator,
+  Alert,
+  Modal,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  RefreshControl,
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { db } from "../../../config/firebaseConfig.native";
+import { useTheme } from "../../../context/ThemeContext";
 
+// Define interfaces for better TypeScript support
 interface Subject {
   id: string;
-  name: string;
-  department: string;
+  subjectCode: string;
+  subjectName?: string;
+  name?: string;
   semester: number;
-  credits: number;
-  subjectCode?: string;
+  department: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface Teacher {
-  uid: string;
-  name: string;
-  email?: string;
-  department: string;
-  role?: string;
+  id: string;
+  name?: string;
+  Name?: string;
+  department?: string;
+  role?: string | string[];
+  designation?: string;
 }
 
-interface Assignment {
+interface TeacherSubject {
   id: string;
   teacherId: string;
-  teacherName?: string;
+  teacherName: string;
   subjectId: string;
-  subjectName?: string;
-  semester?: number;
-  assignedAt?: string;
-}
-
-interface SubjectManagementModalProps {
-  visible: boolean;
-  onClose: () => void;
+  subjectName: string;
+  subjectCode: string;
+  semester: number;
   department: string;
-  onSubjectsUpdated: () => void;
+  assignedAt: string;
 }
 
-const SubjectManagementModal: React.FC<SubjectManagementModalProps> = ({
+export default function SubjectManagementModal({
   visible,
   onClose,
   department,
   onSubjectsUpdated,
-}) => {
-  const [activeTab, setActiveTab] = useState<'add' | 'delete' | 'assign' | 'assignments'>('add');
+}: {
+  visible: boolean;
+  onClose: () => void;
+  department: string;
+  onSubjectsUpdated?: () => void;
+}) {
+  const { colors, theme } = useTheme();
+
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
-  const [assignments, setAssignments] = useState<Assignment[]>([]);
+  const [assignedSubjects, setAssignedSubjects] = useState<TeacherSubject[]>([]);
 
-  // Add subject form
-  const [newSubjectName, setNewSubjectName] = useState('');
-  const [newSubjectCode, setNewSubjectCode] = useState('');
-  const [newSubjectSemester, setNewSubjectSemester] = useState('');
-  const [newSubjectCredits, setNewSubjectCredits] = useState('');
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [newSubjectSemester, setNewSubjectSemester] = useState("");
 
-  // Delete subject
-  const [selectedDeleteSubjectId, setSelectedDeleteSubjectId] = useState('');
+  const [selectedDeleteSubjectId, setSelectedDeleteSubjectId] = useState("");
+  const [selectedTeacherId, setSelectedTeacherId] = useState("");
+  const [selectedAssignSubjectId, setSelectedAssignSubjectId] = useState("");
 
-  // Assign subject
-  const [selectedTeacherId, setSelectedTeacherId] = useState('');
-  const [selectedAssignSubjectId, setSelectedAssignSubjectId] = useState('');
-  
-  // Search filter for teachers
-  const [teacherSearchQuery, setTeacherSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<"add" | "delete" | "assign" | "view">("add");
 
+  // ================= LOAD DATA =================
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      console.log('=== LOADING DATA FOR SUBJECT MANAGEMENT ===');
-      console.log('Department for subjects:', department);
+      // 1. Load subjects for this department
+      const subSnap = await getDocs(
+        query(collection(db, "subjects"), where("department", "==", department))
+      );
 
-      // Load subjects for this department only
-      let subjectsQuery;
-      if (department && department.trim() !== '') {
-        subjectsQuery = query(collection(db, 'subjects'), where('department', '==', department));
-      } else {
-        subjectsQuery = collection(db, 'subjects');
-      }
-      const subjectsSnap = await getDocs(subjectsQuery);
-      const subjectsList = subjectsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Subject));
-      setSubjects(subjectsList);
-      console.log(`✅ Loaded ${subjectsList.length} subjects`);
+      const subList: Subject[] = subSnap.docs.map((d) => ({
+        id: d.id,
+        subjectCode: d.id,
+        ...d.data(),
+      } as Subject));
 
-      // Load ALL teachers (no department filter)
-      const teachersSnap = await getDocs(collection(db, 'teachers'));
-      let teachersList = teachersSnap.docs.map(doc => ({ uid: doc.id, ...doc.data() } as Teacher));
+      setSubjects(subList);
+
+      // 2. Load teachers - Get all teachers and filter by department
+      const teacherSnap = await getDocs(collection(db, "teachers"));
+      const allTeachers: Teacher[] = teacherSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      } as Teacher));
       
-      // Filter out HOD from teachers list
-      teachersList = teachersList.filter(teacher => teacher.role !== 'hod');
-      setTeachers(teachersList);
-      console.log(`✅ Loaded ${teachersList.length} teachers from all departments (excluding HOD)`);
-
-      // Load existing assignments
-      const assignSnap = await getDocs(collection(db, 'teacherSubjects'));
-      const assignmentsList: Assignment[] = [];
+      // Filter teachers by department (case insensitive)
+      const filteredTeachers = allTeachers.filter(teacher => {
+        const teacherDept = teacher.department?.toLowerCase().trim();
+        const currentDept = department?.toLowerCase().trim();
+        return teacherDept === currentDept;
+      });
       
-      for (const docSnap of assignSnap.docs) {
-        const data = docSnap.data();
-        const teacher = teachersList.find(t => t.uid === data.teacherId);
-        const subject = subjectsList.find(s => s.id === data.subjectId);
-        
-        assignmentsList.push({
-          id: docSnap.id,
-          teacherId: data.teacherId,
-          teacherName: teacher?.name || 'Unknown Teacher',
-          subjectId: data.subjectId,
-          subjectName: subject?.name || 'Unknown Subject',
-          semester: subject?.semester,
-          assignedAt: data.assignedAt,
-        });
-      }
-      setAssignments(assignmentsList);
-      console.log(`✅ Loaded ${assignmentsList.length} assignments`);
+      setTeachers(filteredTeachers);
 
-    } catch (error) {
-      console.error('Error loading data:', error);
-      Alert.alert('Error', 'Failed to load data. Check console for details.');
+      // 3. Load subject assignments
+      const assignSnap = await getDocs(
+        query(collection(db, "teacherSubjects"), where("department", "==", department))
+      );
+      const assignments: TeacherSubject[] = assignSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      } as TeacherSubject));
+      setAssignedSubjects(assignments);
+    } catch (err) {
+      const error = err as Error;
+      console.log("Error loading data:", error);
+      Alert.alert("Error loading data", error.message);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, [department]);
 
@@ -150,101 +146,96 @@ const SubjectManagementModal: React.FC<SubjectManagementModalProps> = ({
     }
   }, [visible, loadData]);
 
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadData();
+  };
+
+  // ================= ADD SUBJECT =================
   const handleAddSubject = async () => {
-    if (!newSubjectName.trim() || !newSubjectCode.trim() || !newSubjectSemester || !newSubjectCredits) {
-      Alert.alert('Error', 'Please fill all fields');
+    if (!newSubjectName.trim() || !newSubjectSemester.trim()) {
+      Alert.alert("Fill all fields");
       return;
     }
-    
-    const semesterNum = parseInt(newSubjectSemester);
-    const creditsNum = parseInt(newSubjectCredits);
-    
-    if (isNaN(semesterNum) || semesterNum < 1 || semesterNum > 6) {
-      Alert.alert('Error', 'Semester must be between 1 and 6');
+
+    const sem = parseInt(newSubjectSemester);
+    if (isNaN(sem) || sem < 1 || sem > 8) {
+      Alert.alert("Invalid Semester", "Semester must be between 1 and 8");
       return;
     }
-    
-    if (isNaN(creditsNum) || creditsNum < 1) {
-      Alert.alert('Error', 'Credits must be a positive number');
-      return;
-    }
-    
+
+    const deptPrefix = department.substring(0, 3).toUpperCase();
+    const randomNum = String(Math.floor(Math.random() * 9000) + 1000);
+    const subjectCode = deptPrefix + sem + randomNum;
+
     setLoading(true);
+
     try {
-      // Check if subject with same code already exists
-      const existingQuery = query(
-        collection(db, 'subjects'), 
-        where('subjectCode', '==', newSubjectCode.trim().toUpperCase()),
-        where('department', '==', department)
-      );
-      const existingSnap = await getDocs(existingQuery);
-      
-      if (!existingSnap.empty) {
-        Alert.alert('Error', 'Subject with this code already exists in your department');
-        setLoading(false);
-        return;
-      }
-      
-      await addDoc(collection(db, 'subjects'), {
+      await setDoc(doc(db, "subjects", subjectCode), {
+        subjectName: newSubjectName.trim(),
         name: newSubjectName.trim(),
-        subjectCode: newSubjectCode.trim().toUpperCase(),
-        department: department,
-        semester: semesterNum,
-        credits: creditsNum,
+        subjectCode: subjectCode,
+        semester: sem,
+        department,
         createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       });
       
-      Alert.alert('Success', 'Subject added successfully');
-      setNewSubjectName('');
-      setNewSubjectCode('');
-      setNewSubjectSemester('');
-      setNewSubjectCredits('');
-      await loadData();
-      onSubjectsUpdated();
-    } catch (error) {
-      console.error(error);
-      Alert.alert('Error', 'Failed to add subject');
+      Alert.alert("Success", `Subject added with code: ${subjectCode}`);
+
+      setNewSubjectName("");
+      setNewSubjectSemester("");
+      loadData();
+      if (onSubjectsUpdated) onSubjectsUpdated();
+
+    } catch (err) {
+      const error = err as Error;
+      console.log(error);
+      Alert.alert("Error", "Failed to add subject");
     } finally {
       setLoading(false);
     }
   };
 
+  // ================= DELETE SUBJECT =================
   const handleDeleteSubject = async () => {
     if (!selectedDeleteSubjectId) {
-      Alert.alert('Select a subject', 'Please choose a subject to delete');
+      Alert.alert("Error", "Select a subject to delete");
       return;
     }
-    
+
     Alert.alert(
-      'Confirm Delete',
-      'Deleting a subject will also remove all teacher assignments. Are you sure?',
+      "Confirm Delete",
+      "This will also remove all teacher assignments for this subject. Continue?",
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: "Cancel", style: "cancel" },
         {
-          text: 'Delete',
-          style: 'destructive',
+          text: "Delete",
+          style: "destructive",
           onPress: async () => {
             setLoading(true);
             try {
-              // Delete the subject
-              await deleteDoc(doc(db, 'subjects', selectedDeleteSubjectId));
-              
-              // Delete all assignments related to this subject
+              await deleteDoc(doc(db, "subjects", selectedDeleteSubjectId));
+
               const assignQuery = query(
-                collection(db, 'teacherSubjects'), 
-                where('subjectId', '==', selectedDeleteSubjectId)
+                collection(db, "teacherSubjects"),
+                where("subjectId", "==", selectedDeleteSubjectId)
               );
               const assignSnap = await getDocs(assignQuery);
-              const deletePromises = assignSnap.docs.map(d => deleteDoc(doc(db, 'teacherSubjects', d.id)));
-              await Promise.all(deletePromises);
-              
-              Alert.alert('Deleted', 'Subject and assignments removed');
-              setSelectedDeleteSubjectId('');
-              await loadData();
-              onSubjectsUpdated();
-            } catch (error) {
-              console.error(error);
-              Alert.alert('Error', 'Failed to delete subject');
+
+              await Promise.all(
+                assignSnap.docs.map((d) => deleteDoc(doc(db, "teacherSubjects", d.id)))
+              );
+
+              Alert.alert("Deleted", "Subject and all assignments removed");
+              setSelectedDeleteSubjectId("");
+              loadData();
+              if (onSubjectsUpdated) onSubjectsUpdated();
+
+            } catch (err) {
+              const error = err as Error;
+              console.log(error);
+              Alert.alert("Error", "Delete failed");
             } finally {
               setLoading(false);
             }
@@ -254,383 +245,629 @@ const SubjectManagementModal: React.FC<SubjectManagementModalProps> = ({
     );
   };
 
-  const handleAssignSubject = async () => {
+  // ================= ASSIGN SUBJECT TO TEACHER =================
+  const handleAssign = async () => {
     if (!selectedTeacherId || !selectedAssignSubjectId) {
-      Alert.alert('Error', 'Select both teacher and subject');
+      Alert.alert("Error", "Select both teacher and subject");
       return;
     }
-    
-    const already = assignments.some(a => a.teacherId === selectedTeacherId && a.subjectId === selectedAssignSubjectId);
-    if (already) {
-      Alert.alert('Already Assigned', 'This subject is already assigned to the teacher');
+
+    // Check if already assigned
+    const alreadyAssigned = assignedSubjects.find(
+      (a) => a.teacherId === selectedTeacherId && a.subjectId === selectedAssignSubjectId
+    );
+
+    if (alreadyAssigned) {
+      Alert.alert("Already Assigned", "This subject is already assigned to this teacher");
       return;
     }
-    
+
     setLoading(true);
+
     try {
-      const teacher = teachers.find(t => t.uid === selectedTeacherId);
-      const subject = subjects.find(s => s.id === selectedAssignSubjectId);
-      
-      console.log('Assigning subject:', {
+      const teacher = teachers.find((t) => t.id === selectedTeacherId);
+      const subject = subjects.find((s) => s.id === selectedAssignSubjectId);
+
+      if (!teacher || !subject) {
+        Alert.alert("Error", "Teacher or subject not found");
+        return;
+      }
+
+      await addDoc(collection(db, "teacherSubjects"), {
         teacherId: selectedTeacherId,
-        teacherName: teacher?.name,
-        teacherDepartment: teacher?.department,
-        subjectId: selectedAssignSubjectId,
-        subjectName: subject?.name,
-        subjectDepartment: subject?.department,
-        semester: subject?.semester
-      });
-      
-      await addDoc(collection(db, 'teacherSubjects'), {
-        teacherId: selectedTeacherId,
-        teacherName: teacher?.name || '',
-        teacherDepartment: teacher?.department || '',
-        subjectId: selectedAssignSubjectId,
-        subjectName: subject?.name || '',
-        subjectDepartment: subject?.department || '',
-        semester: subject?.semester || 0,
-        department: department,
-        assignedBy: 'HOD',
+        teacherName: teacher.name || teacher.Name || "Unknown",
+        subjectId: subject.id,
+        subjectName: subject.subjectName || subject.name || "",
+        subjectCode: subject.subjectCode || subject.id,
+        semester: subject.semester,
+        department,
         assignedAt: new Date().toISOString(),
+        assignedBy: "admin",
       });
-      
-      Alert.alert('Success', `Subject "${subject?.name}" assigned to ${teacher?.name} (${teacher?.department})`);
-      setSelectedTeacherId('');
-      setSelectedAssignSubjectId('');
-      await loadData();
-      onSubjectsUpdated();
-    } catch (error) {
-      console.error('Assignment error:', error);
-      Alert.alert('Error', 'Failed to assign subject: ' + (error as any).message);
+
+      Alert.alert("Success", "Subject assigned to teacher");
+
+      setSelectedTeacherId("");
+      setSelectedAssignSubjectId("");
+      loadData();
+      if (onSubjectsUpdated) onSubjectsUpdated();
+
+    } catch (err) {
+      const error = err as Error;
+      console.log(error);
+      Alert.alert("Error", `Assign failed: ${error.message}`);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleRemoveAssignment = async (assignmentId: string, teacherName: string, subjectName: string) => {
-    Alert.alert(
-      'Remove Assignment',
-      `Remove "${subjectName}" from ${teacherName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Remove',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              await deleteDoc(doc(db, 'teacherSubjects', assignmentId));
-              Alert.alert('Success', 'Assignment removed');
-              await loadData();
-              onSubjectsUpdated();
-            } catch (error) {
-              console.error(error);
-              Alert.alert('Error', 'Failed to remove assignment');
-            } finally {
-              setLoading(false);
-            }
-          },
+  // ================= UNASSIGN SUBJECT =================
+  const handleUnassign = async (assignmentId: string) => {
+    Alert.alert("Remove Assignment", "Remove this teacher assignment?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Remove",
+        style: "destructive",
+        onPress: async () => {
+          setLoading(true);
+          try {
+            await deleteDoc(doc(db, "teacherSubjects", assignmentId));
+            Alert.alert("Removed", "Teacher assignment removed");
+            loadData();
+          } catch (err) {
+            const error = err as Error;
+            console.log(error);
+            Alert.alert("Error", "Failed to remove");
+          } finally {
+            setLoading(false);
+          }
         },
-      ]
+      },
+    ]);
+  };
+
+  // Helper to get teacher display name
+  const getTeacherName = (teacher: Teacher) => {
+    return teacher.name || teacher.Name || "Unnamed Teacher";
+  };
+
+  // Helper to get teacher role/designation
+  const getTeacherRole = (teacher: Teacher) => {
+    if (teacher.role) {
+      if (Array.isArray(teacher.role)) {
+        return teacher.role.join(", ");
+      }
+      return teacher.role;
+    }
+    return teacher.designation || "Teacher";
+  };
+
+  // Check if subject is assigned to selected teacher
+  const isSubjectAssignedToTeacher = (subjectId: string) => {
+    if (!selectedTeacherId) return false;
+    return assignedSubjects.some(
+      a => a.teacherId === selectedTeacherId && a.subjectId === subjectId
     );
   };
 
-  const isSubjectAssignedToTeacher = (subjectId: string) => {
-    if (!selectedTeacherId) return false;
-    return assignments.some(a => a.teacherId === selectedTeacherId && a.subjectId === subjectId);
+  // Get tab color based on active tab
+  const getTabColor = (tabId: string) => {
+    if (activeTab === tabId) {
+      if (tabId === "delete") return "#F44336";
+      return colors.primary;
+    }
+    return colors.border;
   };
 
-  // Filter teachers by search query
-  const filteredTeachers = teachers.filter(teacher =>
-    teacher.name?.toLowerCase().includes(teacherSearchQuery.toLowerCase()) ||
-    teacher.department?.toLowerCase().includes(teacherSearchQuery.toLowerCase())
-  );
-
+  // ================= UI =================
   return (
-    <Modal visible={visible} animationType="slide" transparent={false}>
-      <SafeAreaView style={styles.modalContainer}>
-        <LinearGradient colors={['#7384bf', '#0c69ff']} style={styles.header}>
-          <Text style={styles.headerTitle}>Subject Management</Text>
-          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <Ionicons name="close" size={28} color="#fff" />
-          </TouchableOpacity>
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        {/* Header with Gradient */}
+        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
+          <View style={styles.headerContent}>
+            <TouchableOpacity onPress={onClose} style={styles.backButton}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            <View style={styles.headerTextContainer}>
+              <Text style={styles.headerTitle}>Subject Management</Text>
+              <Text style={styles.headerSubtitle}>Department: {department}</Text>
+            </View>
+          </View>
         </LinearGradient>
 
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'add' && styles.activeTab]}
-            onPress={() => setActiveTab('add')}
-          >
-            <Ionicons name="add-circle-outline" size={20} color={activeTab === 'add' ? '#fff' : '#7384bf'} />
-            <Text style={[styles.tabText, activeTab === 'add' && styles.activeTabText]}>Add</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'delete' && styles.activeTab]}
-            onPress={() => setActiveTab('delete')}
-          >
-            <Ionicons name="trash-outline" size={20} color={activeTab === 'delete' ? '#fff' : '#7384bf'} />
-            <Text style={[styles.tabText, activeTab === 'delete' && styles.activeTabText]}>Delete</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'assign' && styles.activeTab]}
-            onPress={() => setActiveTab('assign')}
-          >
-            <Ionicons name="person-add-outline" size={20} color={activeTab === 'assign' ? '#fff' : '#7384bf'} />
-            <Text style={[styles.tabText, activeTab === 'assign' && styles.activeTabText]}>Assign</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'assignments' && styles.activeTab]}
-            onPress={() => setActiveTab('assignments')}
-          >
-            <Ionicons name="list-outline" size={20} color={activeTab === 'assignments' ? '#fff' : '#7384bf'} />
-            <Text style={[styles.tabText, activeTab === 'assignments' && styles.activeTabText]}>List</Text>
-          </TouchableOpacity>
+        {/* Tabs */}
+        <View style={[styles.tabContainer, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "add" && { borderBottomColor: colors.primary }]}
+              onPress={() => setActiveTab("add")}
+            >
+              <Ionicons name="add-circle-outline" size={20} color={activeTab === "add" ? colors.primary : colors.textLight} />
+              <Text style={[styles.tabText, { color: activeTab === "add" ? colors.primary : colors.textLight }]}>Add</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "delete" && { borderBottomColor: "#F44336" }]}
+              onPress={() => setActiveTab("delete")}
+            >
+              <Ionicons name="trash-outline" size={20} color={activeTab === "delete" ? "#F44336" : colors.textLight} />
+              <Text style={[styles.tabText, { color: activeTab === "delete" ? "#F44336" : colors.textLight }]}>Delete</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "assign" && { borderBottomColor: colors.primary }]}
+              onPress={() => setActiveTab("assign")}
+            >
+              <Ionicons name="link-outline" size={20} color={activeTab === "assign" ? colors.primary : colors.textLight} />
+              <Text style={[styles.tabText, { color: activeTab === "assign" ? colors.primary : colors.textLight }]}>Assign</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.tab, activeTab === "view" && { borderBottomColor: colors.primary }]}
+              onPress={() => setActiveTab("view")}
+            >
+              <Ionicons name="eye-outline" size={20} color={activeTab === "view" ? colors.primary : colors.textLight} />
+              <Text style={[styles.tabText, { color: activeTab === "view" ? colors.primary : colors.textLight }]}>View</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
 
-        <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {loading && <ActivityIndicator size="large" color="#7384bf" style={styles.loader} />}
-
-          {/* Add Subject Tab */}
-          {activeTab === 'add' && (
-            <View>
-              <Text style={styles.label}>Subject Name *</Text>
-              <TextInput 
-                style={styles.input} 
-                value={newSubjectName} 
-                onChangeText={setNewSubjectName} 
-                placeholder="e.g., Mathematics" 
-                placeholderTextColor="#999"
-              />
-
-              <Text style={styles.label}>Subject Code *</Text>
-              <TextInput 
-                style={styles.input} 
-                value={newSubjectCode} 
-                onChangeText={setNewSubjectCode} 
-                placeholder="e.g., CS101" 
-                placeholderTextColor="#999"
-                autoCapitalize="characters"
-              />
-
-              <Text style={styles.label}>Semester (1-8) *</Text>
-              <TextInput 
-                style={styles.input} 
-                value={newSubjectSemester} 
-                onChangeText={setNewSubjectSemester} 
-                placeholder="e.g., 3" 
-                placeholderTextColor="#999"
-                keyboardType="numeric" 
-              />
-
-              <Text style={styles.label}>Credits *</Text>
-              <TextInput 
-                style={styles.input} 
-                value={newSubjectCredits} 
-                onChangeText={setNewSubjectCredits} 
-                placeholder="e.g., 4" 
-                placeholderTextColor="#999"
-                keyboardType="numeric" 
-              />
-
-              <TouchableOpacity style={styles.actionButton} onPress={handleAddSubject}>
-                <LinearGradient colors={['#4CAF50', '#45a049']} style={styles.gradientButton}>
-                  <Ionicons name="save-outline" size={20} color="#fff" />
-                  <Text style={styles.buttonText}>Add Subject</Text>
-                </LinearGradient>
-              </TouchableOpacity>
+        <ScrollView 
+          style={styles.content}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          {loading && !refreshing ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.textDark }]}>Loading...</Text>
             </View>
-          )}
+          ) : (
+            <>
+              {/* ===== ADD SUBJECT TAB ===== */}
+              {activeTab === "add" && (
+                <View style={styles.section}>
+                  <View style={[styles.card, { backgroundColor: colors.card }]}>
+                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>
+                      <Ionicons name="add-circle-outline" size={20} color={colors.primary} /> Add New Subject
+                    </Text>
 
-          {/* Delete Subject Tab */}
-          {activeTab === 'delete' && (
-            <View>
-              <Text style={styles.label}>Select Subject to Delete</Text>
-              {subjects.length === 0 ? (
-                <Text style={styles.emptyText}>No subjects available.</Text>
-              ) : (
-                subjects.map(sub => (
-                  <TouchableOpacity
-                    key={sub.id}
-                    style={[styles.optionItem, selectedDeleteSubjectId === sub.id && styles.selectedOption]}
-                    onPress={() => setSelectedDeleteSubjectId(sub.id)}
-                  >
-                    <View>
-                      <Text style={styles.optionText}>{sub.name}</Text>
-                      <Text style={styles.optionSubText}>Code: {sub.subjectCode} | Sem {sub.semester}</Text>
-                    </View>
-                    {selectedDeleteSubjectId === sub.id && <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />}
-                  </TouchableOpacity>
-                ))
-              )}
-              <TouchableOpacity style={[styles.actionButton, styles.deleteButton]} onPress={handleDeleteSubject}>
-                <Ionicons name="trash-outline" size={20} color="#fff" />
-                <Text style={styles.buttonText}>Delete Subject</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+                    <Text style={[styles.label, { color: colors.textLight }]}>Subject Name *</Text>
+                    <TextInput
+                      placeholder="e.g., Database Management Systems"
+                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                      placeholderTextColor={colors.textLight}
+                      value={newSubjectName}
+                      onChangeText={setNewSubjectName}
+                    />
 
-          {/* Assign Subject Tab */}
-          {activeTab === 'assign' && (
-            <View>
-              <Text style={styles.label}>Search Teacher</Text>
-              <TextInput 
-                style={styles.input} 
-                value={teacherSearchQuery} 
-                onChangeText={setTeacherSearchQuery} 
-                placeholder="Search by name or department..." 
-                placeholderTextColor="#999"
-              />
-              
-              <Text style={styles.label}>Select Teacher</Text>
-              {filteredTeachers.length === 0 ? (
-                <Text style={styles.emptyText}>No teachers found. Make sure teachers exist in Firestore.</Text>
-              ) : (
-                filteredTeachers.map(teacher => (
-                  <TouchableOpacity
-                    key={teacher.uid}
-                    style={[styles.optionItem, selectedTeacherId === teacher.uid && styles.selectedOption]}
-                    onPress={() => {
-                      setSelectedTeacherId(teacher.uid);
-                      setSelectedAssignSubjectId('');
-                    }}
-                  >
-                    <View>
-                      <Text style={styles.optionText}>{teacher.name}</Text>
-                      <Text style={styles.optionSubText}>{teacher.department || 'No department'} • {teacher.role || 'Teacher'}</Text>
-                    </View>
-                    {selectedTeacherId === teacher.uid && <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />}
-                  </TouchableOpacity>
-                ))
-              )}
+                    <Text style={[styles.label, { color: colors.textLight }]}>Semester *</Text>
+                    <TextInput
+                      placeholder="Enter semester (1-8)"
+                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
+                      placeholderTextColor={colors.textLight}
+                      value={newSubjectSemester}
+                      onChangeText={setNewSubjectSemester}
+                      keyboardType="numeric"
+                      maxLength={1}
+                    />
 
-              {selectedTeacherId && filteredTeachers.length > 0 && (
-                <>
-                  <Text style={styles.label}>Select Subject to Assign</Text>
-                  {subjects.length === 0 ? (
-                    <Text style={styles.emptyText}>No subjects available. Add subjects first.</Text>
-                  ) : (
-                    subjects.map(sub => {
-                      const alreadyAssigned = isSubjectAssignedToTeacher(sub.id);
-                      return (
-                        <TouchableOpacity
-                          key={sub.id}
-                          style={[
-                            styles.optionItem,
-                            selectedAssignSubjectId === sub.id && styles.selectedOption,
-                            alreadyAssigned && styles.assignedOption,
-                          ]}
-                          onPress={() => !alreadyAssigned && setSelectedAssignSubjectId(sub.id)}
-                          disabled={alreadyAssigned}
-                        >
-                          <View>
-                            <Text style={[styles.optionText, alreadyAssigned && styles.assignedText]}>
-                              {sub.name} ({sub.subjectCode})
-                            </Text>
-                            <Text style={styles.optionSubText}>Semester {sub.semester} • {sub.credits} credits</Text>
-                          </View>
-                          {alreadyAssigned ? (
-                            <Ionicons name="checkmark-done-circle" size={24} color="#4CAF50" />
-                          ) : selectedAssignSubjectId === sub.id ? (
-                            <Ionicons name="checkmark-circle" size={24} color="#4CAF50" />
-                          ) : null}
-                        </TouchableOpacity>
-                      );
-                    })
-                  )}
-                </>
-              )}
-
-              {filteredTeachers.length > 0 && !selectedTeacherId && (
-                <Text style={styles.hintText}>👆 Please select a teacher first</Text>
-              )}
-
-              {selectedTeacherId && selectedAssignSubjectId && (
-                <TouchableOpacity style={styles.actionButton} onPress={handleAssignSubject}>
-                  <LinearGradient colors={['#7384bf', '#0c69ff']} style={styles.gradientButton}>
-                    <Ionicons name="checkmark-done-outline" size={20} color="#fff" />
-                    <Text style={styles.buttonText}>Confirm Assignment</Text>
-                  </LinearGradient>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-
-          {/* View Assignments Tab */}
-          {activeTab === 'assignments' && (
-            <View>
-              <Text style={styles.label}>Current Teacher-Subject Assignments</Text>
-              {assignments.length === 0 ? (
-                <View style={styles.emptyContainer}>
-                  <Ionicons name="school-outline" size={64} color="#ccc" />
-                  <Text style={styles.emptyText}>No assignments found</Text>
-                  <Text style={styles.emptySubText}>{'Go to "Assign" tab to assign subjects to teachers'}</Text>
-                </View>
-              ) : (
-                assignments.map(assign => (
-                  <View key={assign.id} style={styles.assignmentCard}>
-                    <View style={styles.assignmentIcon}>
-                      <Ionicons name="person-outline" size={24} color="#7384bf" />
-                    </View>
-                    <View style={styles.assignmentInfo}>
-                      <Text style={styles.assignmentTeacher}>{assign.teacherName}</Text>
-                      <Text style={styles.assignmentSubject}>{assign.subjectName}</Text>
-                      <Text style={styles.assignmentMeta}>Semester {assign.semester}</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => handleRemoveAssignment(assign.id, assign.teacherName || '', assign.subjectName || '')}
-                      style={styles.deleteAssignmentIcon}
-                    >
-                      <Ionicons name="trash-outline" size={22} color="#F44336" />
+                    <TouchableOpacity style={styles.addBtn} onPress={handleAddSubject} disabled={loading}>
+                      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.gradientButton}>
+                        <Ionicons name="add-circle-outline" size={20} color="#fff" />
+                        <Text style={styles.btnText}>Add Subject</Text>
+                      </LinearGradient>
                     </TouchableOpacity>
                   </View>
-                ))
+                </View>
               )}
-            </View>
+
+              {/* ===== DELETE SUBJECT TAB ===== */}
+              {activeTab === "delete" && (
+                <View style={styles.section}>
+                  <View style={[styles.card, { backgroundColor: colors.card }]}>
+                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>
+                      <Ionicons name="trash-outline" size={20} color="#F44336" /> Delete Subject
+                    </Text>
+
+                    {subjects.length === 0 ? (
+                      <View style={styles.emptyContainer}>
+                        <Ionicons name="document-outline" size={64} color={colors.textLight} />
+                        <Text style={[styles.emptyText, { color: colors.textLight }]}>No subjects found</Text>
+                      </View>
+                    ) : (
+                      subjects.map((s) => (
+                        <TouchableOpacity
+                          key={s.id}
+                          onPress={() => setSelectedDeleteSubjectId(s.id)}
+                          style={[
+                            styles.subjectItem,
+                            { backgroundColor: colors.background, borderColor: colors.border },
+                            selectedDeleteSubjectId === s.id && styles.selectedDeleteItem,
+                          ]}
+                        >
+                          <View style={styles.subjectItemContent}>
+                            <View>
+                              <Text style={[styles.subjectName, { color: colors.textDark }]}>{s.subjectName || s.name}</Text>
+                              <Text style={[styles.subjectDetails, { color: colors.textLight }]}>Code: {s.subjectCode} | Sem: {s.semester}</Text>
+                            </View>
+                            {selectedDeleteSubjectId === s.id && (
+                              <Ionicons name="checkmark-circle" size={24} color="#F44336" />
+                            )}
+                          </View>
+                        </TouchableOpacity>
+                      ))
+                    )}
+
+                    {selectedDeleteSubjectId && (
+                      <TouchableOpacity style={styles.deleteBtn} onPress={handleDeleteSubject} disabled={loading}>
+                        <LinearGradient colors={["#F44336", "#D32F2F"]} style={styles.gradientButton}>
+                          <Ionicons name="trash-outline" size={20} color="#fff" />
+                          <Text style={styles.btnText}>Delete Selected Subject</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* ===== ASSIGN TAB ===== */}
+              {activeTab === "assign" && (
+                <View style={styles.section}>
+                  <View style={[styles.card, { backgroundColor: colors.card }]}>
+                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>
+                      <Ionicons name="link-outline" size={20} color={colors.primary} /> Assign Subject to Teacher
+                    </Text>
+
+                    <Text style={[styles.label, { color: colors.textLight }]}>Select Teacher</Text>
+                    {teachers.length === 0 ? (
+                      <View style={styles.emptyContainer}>
+                        <Ionicons name="person-outline" size={48} color={colors.textLight} />
+                        <Text style={[styles.emptyText, { color: colors.textLight }]}>
+                          No teachers found in {department} department
+                        </Text>
+                      </View>
+                    ) : (
+                      <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                        {teachers.map((t) => (
+                          <TouchableOpacity
+                            key={t.id}
+                            onPress={() => setSelectedTeacherId(t.id)}
+                            style={[
+                              styles.selectorItem,
+                              { backgroundColor: colors.background, borderColor: colors.border },
+                              selectedTeacherId === t.id && styles.selectedItem,
+                            ]}
+                          >
+                            <View style={styles.selectorItemContent}>
+                              <View>
+                                <Text style={[styles.selectorTitle, { color: colors.textDark }]}>{getTeacherName(t)}</Text>
+                                <Text style={[styles.selectorSub, { color: colors.textLight }]}>
+                                  Role: {getTeacherRole(t)} | Dept: {t.department || "N/A"}
+                                </Text>
+                              </View>
+                              {selectedTeacherId === t.id && (
+                                <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
+                              )}
+                            </View>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    )}
+
+                    <Text style={[styles.label, { color: colors.textLight, marginTop: 15 }]}>Select Subject</Text>
+                    {subjects.length === 0 ? (
+                      <View style={styles.emptyContainer}>
+                        <Ionicons name="book-outline" size={48} color={colors.textLight} />
+                        <Text style={[styles.emptyText, { color: colors.textLight }]}>
+                          No subjects available in {department} department
+                        </Text>
+                      </View>
+                    ) : (
+                      <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+                        {subjects.map((s) => {
+                          const isAssigned = isSubjectAssignedToTeacher(s.id);
+                          
+                          return (
+                            <TouchableOpacity
+                              key={s.id}
+                              onPress={() => !isAssigned && setSelectedAssignSubjectId(s.id)}
+                              disabled={isAssigned}
+                              style={[
+                                styles.selectorItem,
+                                { backgroundColor: colors.background, borderColor: colors.border },
+                                selectedAssignSubjectId === s.id && styles.selectedItem,
+                                isAssigned && styles.disabledItem,
+                              ]}
+                            >
+                              <View style={styles.selectorItemContent}>
+                                <View>
+                                  <Text style={[styles.selectorTitle, { color: colors.textDark }]}>{s.subjectName || s.name}</Text>
+                                  <Text style={[styles.selectorSub, { color: colors.textLight }]}>
+                                    Code: {s.subjectCode} | Sem: {s.semester}
+                                  </Text>
+                                </View>
+                                {isAssigned ? (
+                                  <Ionicons name="checkmark-done" size={24} color={colors.primary} />
+                                ) : selectedAssignSubjectId === s.id ? (
+                                  <Ionicons name="checkmark-circle" size={24} color={colors.primary} />
+                                ) : null}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </ScrollView>
+                    )}
+
+                    {selectedTeacherId && selectedAssignSubjectId && (
+                      <TouchableOpacity style={styles.assignBtn} onPress={handleAssign} disabled={loading}>
+                        <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.gradientButton}>
+                          <Ionicons name="link-outline" size={20} color="#fff" />
+                          <Text style={styles.btnText}>Assign Subject to Teacher</Text>
+                        </LinearGradient>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {/* ===== VIEW ASSIGNMENTS TAB ===== */}
+              {activeTab === "view" && (
+                <View style={styles.section}>
+                  <View style={[styles.card, { backgroundColor: colors.card }]}>
+                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>
+                      <Ionicons name="eye-outline" size={20} color={colors.primary} /> Current Assignments
+                    </Text>
+
+                    {assignedSubjects.length === 0 ? (
+                      <View style={styles.emptyContainer}>
+                        <Ionicons name="link-outline" size={64} color={colors.textLight} />
+                        <Text style={[styles.emptyText, { color: colors.textLight }]}>No assignments yet</Text>
+                      </View>
+                    ) : (
+                      assignedSubjects.map((a) => (
+                        <View
+                          key={a.id}
+                          style={[styles.assignmentItem, { backgroundColor: colors.background, borderColor: colors.border }]}
+                        >
+                          <View style={styles.assignmentContent}>
+                            <View>
+                              <Text style={[styles.assignmentTitle, { color: colors.textDark }]}>{a.subjectName}</Text>
+                              <Text style={[styles.assignmentDetails, { color: colors.textLight }]}>
+                                Teacher: {a.teacherName} | Sem: {a.semester}
+                              </Text>
+                              <Text style={[styles.assignmentCode, { color: colors.textLight }]}>Code: {a.subjectCode}</Text>
+                            </View>
+                            <TouchableOpacity onPress={() => handleUnassign(a.id)} style={styles.unassignBtn}>
+                              <Ionicons name="close-circle" size={28} color="#F44336" />
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      ))
+                    )}
+                  </View>
+                </View>
+              )}
+            </>
           )}
         </ScrollView>
       </SafeAreaView>
     </Modal>
   );
-};
+}
 
+// ================= STYLES =================
 const styles = StyleSheet.create({
-  modalContainer: { flex: 1, backgroundColor: '#f5f5f5' },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, paddingTop: 50 },
-  headerTitle: { fontSize: 22, fontWeight: 'bold', color: '#fff' },
-  closeButton: { padding: 5 },
-  tabContainer: { flexDirection: 'row', backgroundColor: '#fff', marginHorizontal: 15, marginTop: 15, borderRadius: 12, overflow: 'hidden', elevation: 2 },
-  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 12, gap: 6, backgroundColor: '#fff' },
-  activeTab: { backgroundColor: '#7384bf' },
-  tabText: { fontWeight: '600', color: '#333', fontSize: 14 },
-  activeTabText: { color: '#fff' },
-  content: { padding: 20 },
-  loader: { marginTop: 40 },
-  label: { fontSize: 16, fontWeight: '600', marginTop: 15, marginBottom: 8, color: '#333' },
-  input: { backgroundColor: '#fff', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#ddd', marginBottom: 10, fontSize: 16 },
-  optionItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 8, borderWidth: 1, borderColor: '#eee' },
-  selectedOption: { borderColor: '#4CAF50', backgroundColor: '#f0fff0' },
-  assignedOption: { backgroundColor: '#f5f5f5', opacity: 0.7 },
-  assignedText: { color: '#999', textDecorationLine: 'line-through' },
-  optionText: { fontSize: 16, fontWeight: '500', color: '#333' },
-  optionSubText: { fontSize: 12, color: '#666', marginTop: 2 },
-  hintText: { fontSize: 14, color: '#999', textAlign: 'center', marginTop: 20, padding: 10 },
-  actionButton: { marginTop: 25, borderRadius: 12, overflow: 'hidden' },
-  deleteButton: { backgroundColor: '#F44336', padding: 14, alignItems: 'center', borderRadius: 12, flexDirection: 'row', justifyContent: 'center', gap: 8 },
-  gradientButton: { padding: 14, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
-  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  emptyText: { fontSize: 14, color: '#999', textAlign: 'center', marginTop: 20 },
-  emptySubText: { fontSize: 12, color: '#bbb', textAlign: 'center', marginTop: 8 },
-  emptyContainer: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-  assignmentCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 12, marginBottom: 10, borderWidth: 1, borderColor: '#e0e0e0', elevation: 1 },
-  assignmentIcon: { width: 45, height: 45, borderRadius: 23, backgroundColor: '#f0f0f0', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  assignmentInfo: { flex: 1 },
-  assignmentTeacher: { fontSize: 16, fontWeight: '600', color: '#333' },
-  assignmentSubject: { fontSize: 14, color: '#666', marginTop: 2 },
-  assignmentMeta: { fontSize: 12, color: '#999', marginTop: 2 },
-  deleteAssignmentIcon: { padding: 8 },
+  container: {
+    flex: 1,
+  },
+  header: {
+    padding: 20,
+    paddingTop: 40,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+  },
+  headerContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 15,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTextContainer: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "#fff",
+    opacity: 0.9,
+    marginTop: 2,
+  },
+  tabContainer: {
+    flexDirection: "row",
+    borderBottomWidth: 1,
+  },
+  tab: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    gap: 6,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  content: {
+    flex: 1,
+    padding: 16,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 60,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+  },
+  section: {
+    marginBottom: 16,
+  },
+  card: {
+    borderRadius: 16,
+    padding: 16,
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginBottom: 8,
+    marginTop: 8,
+  },
+  input: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    fontSize: 15,
+    marginBottom: 12,
+  },
+  addBtn: {
+    marginTop: 8,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  assignBtn: {
+    marginTop: 16,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  deleteBtn: {
+    marginTop: 16,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  gradientButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 14,
+    gap: 8,
+  },
+  btnText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  subjectItem: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  subjectItemContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  subjectName: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  subjectDetails: {
+    fontSize: 12,
+  },
+  selectedDeleteItem: {
+    borderColor: "#F44336",
+    borderWidth: 2,
+  },
+  selectorItem: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  selectedItem: {
+    borderColor: "#4CAF50",
+    borderWidth: 2,
+  },
+  selectorItemContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  selectorTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  selectorSub: {
+    fontSize: 12,
+  },
+  disabledItem: {
+    opacity: 0.6,
+  },
+  assignmentItem: {
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 8,
+  },
+  assignmentContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  assignmentTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    marginBottom: 4,
+  },
+  assignmentDetails: {
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  assignmentCode: {
+    fontSize: 11,
+  },
+  unassignBtn: {
+    padding: 4,
+  },
+  emptyContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  emptyText: {
+    textAlign: "center",
+    fontSize: 14,
+    marginTop: 12,
+  },
 });
-
-export default SubjectManagementModal;
