@@ -1,14 +1,13 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { collection, doc, getDoc, getDocs, query, updateDoc, where } from "firebase/firestore";
+import { useRouter } from "expo-router";
+import { doc, updateDoc } from "firebase/firestore";
 import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
 import * as ImagePicker from "expo-image-picker";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     Image,
     ScrollView,
     StyleSheet,
@@ -20,204 +19,120 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../config/firebaseConfig.native";
 import { useTheme } from "../../context/ThemeContext";
+import { useAuth } from "../../context/AuthContext";
+import { Picker } from "@react-native-picker/picker";
 
-const { width } = Dimensions.get("window");
+const DEPARTMENTS = [
+  "Civil Engineering",
+  "Electrical Engineering",
+  "Mechanical Engineering",
+  "Computer Engineering",
+  "Automobile Engineering",
+  "Architecture Assistantship",
+  "Electronics & Communication Engineering",
+];
 
-type UserRole = "student" | "teacher" | "class_teacher" | "hod";
+const SEMESTERS = ["1", "2", "3", "4", "5", "6"];
 
-interface UserProfile {
-  docId: string;
-  collectionName: string;
-  role: UserRole;
+interface ProfileData {
   name: string;
-  email: string;
-  phone: string;
+  gmail: string;
+  phoneNo: string;
   address: string;
-  profileImage: string | null;
-  dateOfBirth: string;
-  rollNo?: string;
+  department: string;
   semester?: string;
-  department?: string;
-  parentPhone?: string;
   boardRollNo?: string;
+  classRollNo?: string;
+  parentPhoneNo?: string;
   qualification?: string;
-  experience?: string;
-  specialization?: string;
-  designation?: string;
+  profileImage?: string;
 }
 
 export default function ProfileSettings() {
   const router = useRouter();
-  const params = useLocalSearchParams<any>();
   const { colors, theme, toggleTheme } = useTheme();
+  const { user, refreshUser } = useAuth();
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [editMode, setEditMode] = useState(false);
   
-  const [profile, setProfile] = useState<UserProfile>({
-    docId: "",
-    collectionName: "",
-    role: "student",
+  const [profile, setProfile] = useState<ProfileData>({
     name: "",
-    email: "",
-    phone: "",
+    gmail: "",
+    phoneNo: "",
     address: "",
-    profileImage: null,
-    dateOfBirth: "",
+    department: "",
   });
 
+  const isTeacher = user?.role === "teacher" || user?.role === "hod";
+  const isStudent = user?.role === "student";
   const storage = getStorage();
 
-  const fetchUserProfile = useCallback(async () => {
+  const fetchProfile = useCallback(async () => {
+    if (!user?.uid) {
+      setLoading(false);
+      return;
+    }
+
     try {
-      const identifier = params.boardRollNo || params.teacherId || params.userId;
+      const collectionName = isStudent ? "students" : "teachers";
+      const userRef = doc(db, collectionName, user.uid);
+      const userSnap = await (await import("firebase/firestore")).getDoc(userRef);
       
-      if (!identifier) {
-        Alert.alert("Error", "No user identifier found");
-        setLoading(false);
-        return;
-      }
-
-      console.log("Fetching profile for:", identifier);
-
-      // TRY 1: Search in students collection by boardRollNo
-      const studentQuery = query(
-        collection(db, "students"),
-        where("boardRollNo", "==", identifier)
-      );
-      const studentSnap = await getDocs(studentQuery);
-      
-      if (!studentSnap.empty) {
-        const docSnap = studentSnap.docs[0];
-        const data = docSnap.data();
-        
+      if (userSnap.exists()) {
+        const data = userSnap.data();
         setProfile({
-          docId: docSnap.id,
-          collectionName: "students",
-          role: "student",
-          name: data.name || data.Name || "",
-          email: data.email || "",
-          phone: data.phone || "",
+          name: data.name || user.name || "",
+          gmail: data.gmail || user.email || "",
+          phoneNo: data.phoneNo || data.phone || "",
           address: data.address || "",
-          profileImage: data.profileImage || null,
-          dateOfBirth: data.dateOfBirth || "",
-          rollNo: data.rollNo || "",
-          semester: data.semester || "",
-          department: data.department || "",
-          parentPhone: data.parentPhone || "",
-          boardRollNo: data.boardRollNo || identifier,
+          department: data.department || user.department || "",
+          semester: data.semester || user.semester || "",
+          boardRollNo: data.boardRollNo || user.boardRollNo || "",
+          classRollNo: data.classRollNo || user.classRollNo || "",
+          parentPhoneNo: data.parentPhoneNo || user.parentPhoneNo || "",
+          qualification: data.qualification || user.qualification || "",
+          profileImage: data.profileImage || user.photoURL || undefined,
         });
-        
-        console.log("Found STUDENT profile, docId:", docSnap.id);
-        setLoading(false);
-        return;
-      }
-
-      // TRY 2: Search in teachers collection
-      const teacherQuery = query(
-        collection(db, "teachers"),
-        where("boardRollNo", "==", identifier)
-      );
-      const teacherSnap = await getDocs(teacherQuery);
-      
-      if (!teacherSnap.empty) {
-        const docSnap = teacherSnap.docs[0];
-        const data = docSnap.data();
-        
+      } else {
+        // Use data from AuthContext
         setProfile({
-          docId: docSnap.id,
-          collectionName: "teachers",
-          role: data.role || "teacher",
-          name: data.name || data.Name || "",
-          email: data.email || "",
-          phone: data.phone || "",
-          address: data.address || "",
-          profileImage: data.profileImage || null,
-          dateOfBirth: data.dateOfBirth || "",
-          department: data.department || "",
-          qualification: data.qualification || "",
-          experience: data.experience || "",
-          specialization: data.specialization || "",
-          designation: data.designation || "",
+          name: user.name || "",
+          gmail: user.email || "",
+          phoneNo: user.phone || "",
+          address: user.address || "",
+          department: user.department || "",
+          semester: user.semester || "",
+          boardRollNo: user.boardRollNo || "",
+          classRollNo: user.classRollNo || "",
+          parentPhoneNo: user.parentPhoneNo || "",
+          qualification: user.qualification || "",
+          profileImage: user.photoURL || undefined,
         });
-        
-        console.log("Found TEACHER profile, docId:", docSnap.id);
-        setLoading(false);
-        return;
       }
-
-      // TRY 3: Direct document lookup in students by ID
-      const studentDocRef = doc(db, "students", identifier);
-      const studentDocSnap = await getDoc(studentDocRef);
-      
-      if (studentDocSnap.exists()) {
-        const data = studentDocSnap.data();
-        
-        setProfile({
-          docId: studentDocSnap.id,
-          collectionName: "students",
-          role: "student",
-          name: data.name || data.Name || "",
-          email: data.email || "",
-          phone: data.phone || "",
-          address: data.address || "",
-          profileImage: data.profileImage || null,
-          dateOfBirth: data.dateOfBirth || "",
-          rollNo: data.rollNo || "",
-          semester: data.semester || "",
-          department: data.department || "",
-          parentPhone: data.parentPhone || "",
-          boardRollNo: data.boardRollNo || identifier,
-        });
-        
-        console.log("Found STUDENT profile by doc ID:", studentDocSnap.id);
-        setLoading(false);
-        return;
-      }
-
-      // TRY 4: Direct document lookup in teachers by ID
-      const teacherDocRef = doc(db, "teachers", identifier);
-      const teacherDocSnap = await getDoc(teacherDocRef);
-      
-      if (teacherDocSnap.exists()) {
-        const data = teacherDocSnap.data();
-        
-        setProfile({
-          docId: teacherDocSnap.id,
-          collectionName: "teachers",
-          role: data.role || "teacher",
-          name: data.name || data.Name || "",
-          email: data.email || "",
-          phone: data.phone || "",
-          address: data.address || "",
-          profileImage: data.profileImage || null,
-          dateOfBirth: data.dateOfBirth || "",
-          department: data.department || "",
-          qualification: data.qualification || "",
-          experience: data.experience || "",
-          specialization: data.specialization || "",
-          designation: data.designation || "",
-        });
-        
-        console.log("Found TEACHER profile by doc ID:", teacherDocSnap.id);
-        setLoading(false);
-        return;
-      }
-
-      Alert.alert("Error", "User profile not found");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error fetching profile:", error);
-      Alert.alert("Error", "Failed to load profile: " + error.message);
+      // Fallback to AuthContext data
+      setProfile({
+        name: user.name || "",
+        gmail: user.email || "",
+        phoneNo: user.phone || "",
+        address: user.address || "",
+        department: user.department || "",
+        semester: user.semester || "",
+        boardRollNo: user.boardRollNo || "",
+        qualification: user.qualification || "",
+        profileImage: user.photoURL || undefined,
+      });
     } finally {
       setLoading(false);
     }
-  }, [params.boardRollNo, params.teacherId, params.userId]);
-
+  }, [user, isStudent]);
   useEffect(() => {
-    fetchUserProfile();
-  }, [fetchUserProfile]);
+    fetchProfile();
+  }, [fetchProfile]);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -238,67 +153,40 @@ export default function ProfileSettings() {
     }
   };
 
- const uploadProfileImage = async (uri: string) => {
-  if (!profile.docId || !profile.collectionName) {
-    Alert.alert("Error", "User profile not loaded");
-    return;
-  }
-
-  setUploadingPhoto(true);
-  
-  try {
-    console.log("Starting upload...");
-    console.log("URI:", uri);
-    
-    // Convert image to blob
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    console.log("Blob size:", blob.size);
-    
-    // Create file path
-    const fileName = "profile_" + Date.now() + ".jpg";
-    const storageRef = ref(storage, "profileImages/" + fileName);
-    console.log("Storage path:", "profileImages/" + fileName);
-    
-    // Upload blob
-    const uploadResult = await uploadBytes(storageRef, blob);
-    console.log("Upload successful:", uploadResult);
-    
-    // Get download URL
-    const downloadURL = await getDownloadURL(storageRef);
-    console.log("Download URL:", downloadURL);
-    
-    // Update Firestore
-    const userRef = doc(db, profile.collectionName, profile.docId);
-    await updateDoc(userRef, {
-      profileImage: downloadURL,
-      updatedAt: new Date().toISOString()
-    });
-    
-    // Update local state
-    setProfile(prev => ({ ...prev, profileImage: downloadURL }));
-    Alert.alert("Success", "Profile photo updated!");
-    
-  } catch (error: any) {
-    console.error("Upload error:", error);
-    console.error("Error code:", error.code);
-    console.error("Error message:", error.message);
-    
-    if (error.code === "storage/unknown") {
-      Alert.alert(
-        "Storage Error",
-        "Please check:\n" +
-        "1. Firebase Storage is enabled\n" +
-        "2. Storage rules allow uploads\n" +
-        "3. Internet connection is stable"
-      );
-    } else {
-      Alert.alert("Upload Failed", error.message || "Unknown error");
+  const uploadProfileImage = async (uri: string) => {
+    if (!user?.uid) {
+      Alert.alert("Error", "User not authenticated");
+      return;
     }
-  } finally {
-    setUploadingPhoto(false);
-  }
-};
+
+    setUploadingPhoto(true);
+    
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      const fileName = `profile_${user.uid}_${Date.now()}.jpg`;
+      const storageRef = ref(storage, `profileImages/${fileName}`);
+      
+      await uploadBytes(storageRef, blob);
+      const downloadURL = await getDownloadURL(storageRef);
+      
+      const collectionName = isStudent ? "students" : "teachers";
+      const userRef = doc(db, collectionName, user.uid);
+      await updateDoc(userRef, {
+        profileImage: downloadURL,
+        updatedAt: new Date().toISOString()
+      });
+      
+      setProfile(prev => ({ ...prev, profileImage: downloadURL }));
+      Alert.alert("Success", "Profile photo updated!");
+    } catch (error: any) {
+      console.error("Upload error:", error);
+      Alert.alert("Upload Failed", error.message || "Please try again.");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!profile.name.trim()) {
@@ -306,50 +194,38 @@ export default function ProfileSettings() {
       return;
     }
 
-    // ✅ Check if docId and collectionName exist
-    if (!profile.docId) {
-      Alert.alert("Error", "Cannot save: Document ID is missing. Please reload the page.");
+    if (!user?.uid) {
+      Alert.alert("Error", "User not authenticated");
       return;
     }
-
-    if (!profile.collectionName) {
-      Alert.alert("Error", "Cannot save: Collection name is missing. Please reload the page.");
-      return;
-    }
-
-    console.log("Saving to:", profile.collectionName, "docId:", profile.docId);
 
     setSaving(true);
     try {
-      // ✅ CORRECT: 2 segments - collection name + document ID
-      const userRef = doc(db, profile.collectionName, profile.docId);
+      const collectionName = isStudent ? "students" : "teachers";
+      const userRef = doc(db, collectionName, user.uid);
       
       const updateData: any = {
         name: profile.name.trim(),
-        Name: profile.name.trim(),
-        phone: profile.phone.trim(),
+        phoneNo: profile.phoneNo.trim(),
         address: profile.address.trim(),
-        dateOfBirth: profile.dateOfBirth.trim(),
+        department: profile.department,
         updatedAt: new Date().toISOString(),
       };
       
-      if (profile.role === "student") {
-        updateData.rollNo = profile.rollNo?.trim() || "";
-        updateData.semester = profile.semester?.trim() || "";
-        updateData.department = profile.department?.trim() || "";
-        updateData.parentPhone = profile.parentPhone?.trim() || "";
+      if (isStudent) {
+        updateData.semester = profile.semester || "";
+        updateData.boardRollNo = profile.boardRollNo || "";
+        updateData.classRollNo = profile.classRollNo || "";
+        updateData.parentPhoneNo = profile.parentPhoneNo || "";
       } else {
-        updateData.department = profile.department?.trim() || "";
-        updateData.qualification = profile.qualification?.trim() || "";
-        updateData.experience = profile.experience?.trim() || "";
-        updateData.specialization = profile.specialization?.trim() || "";
-        updateData.designation = profile.designation?.trim() || "";
+        updateData.qualification = profile.qualification || "";
       }
       
       await updateDoc(userRef, updateData);
+      await refreshUser(); // Refresh AuthContext data
+      
       Alert.alert("Success", "Profile updated successfully");
       setEditMode(false);
-      fetchUserProfile();
     } catch (error: any) {
       console.error("Save error:", error);
       Alert.alert("Error", "Failed to update profile: " + error.message);
@@ -358,31 +234,23 @@ export default function ProfileSettings() {
     }
   };
 
-  const updateField = (field: keyof UserProfile, value: string) => {
+  const updateField = (field: keyof ProfileData, value: string) => {
     setProfile(prev => ({ ...prev, [field]: value }));
   };
 
   const getRoleDisplayName = (): string => {
-    switch (profile.role) {
-      case "hod": return "Head of Department";
-      case "class_teacher": return "Class Teacher";
-      case "teacher": return "Teacher";
-      case "student": return "Student";
-      default: return "User";
-    }
+    if (user?.role === "hod") return "Head of Department";
+    if (user?.role === "teacher") return "Teacher";
+    if (user?.role === "student") return "Student";
+    return "User";
   };
 
   const getRoleIcon = (): any => {
-    switch (profile.role) {
-      case "hod": return "shield-checkmark-outline";
-      case "class_teacher": return "briefcase-outline";
-      case "teacher": return "school-outline";
-      case "student": return "school-outline";
-      default: return "person-outline";
-    }
+    if (user?.role === "hod") return "shield-checkmark-outline";
+    if (user?.role === "teacher") return "school-outline";
+    if (user?.role === "student") return "school-outline";
+    return "person-outline";
   };
-
-  const isTeacher = profile.role !== "student";
 
   if (loading) {
     return (
@@ -408,7 +276,7 @@ export default function ProfileSettings() {
       </LinearGradient>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-        {/* Profile Photo */}
+        {/* Profile Photo Section */}
         <View style={styles.profileHeader}>
           <TouchableOpacity 
             onPress={editMode ? pickImage : undefined} 
@@ -444,7 +312,10 @@ export default function ProfileSettings() {
           )}
           
           <Text style={[styles.profileName, { color: colors.textDark }]}>
-            {profile.name || "User"}
+            {profile.name || user?.name || "User"}
+          </Text>
+          <Text style={[styles.profileEmail, { color: colors.textLight }]}>
+            {profile.gmail || user?.email || ""}
           </Text>
           <View style={[styles.roleBadge, { backgroundColor: colors.primary + "20" }]}>
             <Ionicons name={getRoleIcon()} size={14} color={colors.primary} />
@@ -462,10 +333,13 @@ export default function ProfileSettings() {
           )}
         </View>
 
-        {/* Form */}
+        {/* Form Card */}
         <View style={[styles.formCard, { backgroundColor: colors.card }]}>
           {editMode ? (
             <>
+              {/* Personal Information */}
+              <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Personal Information</Text>
+              
               <View style={styles.inputGroup}>
                 <Text style={[styles.label, { color: colors.textDark }]}>Full Name *</Text>
                 <TextInput
@@ -481,11 +355,12 @@ export default function ProfileSettings() {
                 <Text style={[styles.label, { color: colors.textDark }]}>Phone Number</Text>
                 <TextInput
                   style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                  value={profile.phone}
-                  onChangeText={(v) => updateField("phone", v)}
+                  value={profile.phoneNo}
+                  onChangeText={(v) => updateField("phoneNo", v)}
                   placeholder="Enter phone number"
                   placeholderTextColor={colors.textLight}
                   keyboardType="phone-pad"
+                  maxLength={10}
                 />
               </View>
 
@@ -503,53 +378,73 @@ export default function ProfileSettings() {
               </View>
 
               <View style={styles.inputGroup}>
-                <Text style={[styles.label, { color: colors.textDark }]}>Date of Birth</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                  value={profile.dateOfBirth}
-                  onChangeText={(v) => updateField("dateOfBirth", v)}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={colors.textLight}
-                />
+                <Text style={[styles.label, { color: colors.textDark }]}>Department</Text>
+                <View style={[styles.pickerContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                  <Picker
+                    selectedValue={profile.department}
+                    onValueChange={(value: string) => updateField("department", value)}
+                    dropdownIconColor={colors.textDark}
+                  >
+                    <Picker.Item label="Select Department" value="" color={colors.textLight} />
+                    {DEPARTMENTS.map((dept) => (
+                      <Picker.Item key={dept} label={dept} value={dept} color={colors.textDark} />
+                    ))}
+                  </Picker>
+                </View>
               </View>
 
               {/* Student Fields */}
-              {!isTeacher && (
+              {isStudent && (
                 <>
                   <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Academic Information</Text>
                   
                   <View style={styles.row}>
                     <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={[styles.label, { color: colors.textDark }]}>Roll No</Text>
+                      <Text style={[styles.label, { color: colors.textDark }]}>Board Roll No</Text>
                       <TextInput
-                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={profile.rollNo || ""}
-                        onChangeText={(v) => updateField("rollNo", v)}
-                        placeholder="Roll number"
-                        placeholderTextColor={colors.textLight}
-                      />
+  style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textLight }]}
+  value={profile.boardRollNo || ""}
+  editable={false}
+/>
                     </View>
                     <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
-                      <Text style={[styles.label, { color: colors.textDark }]}>Semester</Text>
+                      <Text style={[styles.label, { color: colors.textDark }]}>Class Roll No</Text>
                       <TextInput
                         style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={profile.semester || ""}
-                        onChangeText={(v) => updateField("semester", v)}
-                        placeholder="Semester"
+                        value={profile.classRollNo || ""}
+                        onChangeText={(v) => updateField("classRollNo", v)}
+                        placeholder="Class roll"
                         placeholderTextColor={colors.textLight}
-                        keyboardType="numeric"
                       />
                     </View>
                   </View>
 
                   <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Department</Text>
+                    <Text style={[styles.label, { color: colors.textDark }]}>Semester</Text>
+                    <View style={[styles.pickerContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                      <Picker
+                        selectedValue={profile.semester}
+                        onValueChange={(value: string) => updateField("semester", value)}
+                        dropdownIconColor={colors.textDark}
+                      >
+                        <Picker.Item label="Select Semester" value="" color={colors.textLight} />
+                        {SEMESTERS.map((sem) => (
+                          <Picker.Item key={sem} label={`Semester ${sem}`} value={sem} color={colors.textDark} />
+                        ))}
+                      </Picker>
+                    </View>
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <Text style={[styles.label, { color: colors.textDark }]}>Parent Phone</Text>
                     <TextInput
                       style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={profile.department || ""}
-                      onChangeText={(v) => updateField("department", v)}
-                      placeholder="e.g., Computer Engineering"
+                      value={profile.parentPhoneNo || ""}
+                      onChangeText={(v) => updateField("parentPhoneNo", v)}
+                      placeholder="Parent's phone number"
                       placeholderTextColor={colors.textLight}
+                      keyboardType="phone-pad"
+                      maxLength={10}
                     />
                   </View>
                 </>
@@ -561,49 +456,14 @@ export default function ProfileSettings() {
                   <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Professional Information</Text>
                   
                   <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Department</Text>
+                    <Text style={[styles.label, { color: colors.textDark }]}>Qualification</Text>
                     <TextInput
                       style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={profile.department || ""}
-                      onChangeText={(v) => updateField("department", v)}
-                      placeholder="e.g., Computer Science"
+                      value={profile.qualification || ""}
+                      onChangeText={(v) => updateField("qualification", v)}
+                      placeholder="e.g., M.Tech, Ph.D."
                       placeholderTextColor={colors.textLight}
                     />
-                  </View>
-
-                  <View style={styles.inputGroup}>
-                    <Text style={[styles.label, { color: colors.textDark }]}>Designation</Text>
-                    <TextInput
-                      style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                      value={profile.designation || ""}
-                      onChangeText={(v) => updateField("designation", v)}
-                      placeholder="e.g., Professor"
-                      placeholderTextColor={colors.textLight}
-                    />
-                  </View>
-
-                  <View style={styles.row}>
-                    <View style={[styles.inputGroup, { flex: 1 }]}>
-                      <Text style={[styles.label, { color: colors.textDark }]}>Experience (Years)</Text>
-                      <TextInput
-                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={profile.experience || ""}
-                        onChangeText={(v) => updateField("experience", v)}
-                        placeholder="Years"
-                        placeholderTextColor={colors.textLight}
-                        keyboardType="numeric"
-                      />
-                    </View>
-                    <View style={[styles.inputGroup, { flex: 1, marginLeft: 10 }]}>
-                      <Text style={[styles.label, { color: colors.textDark }]}>Specialization</Text>
-                      <TextInput
-                        style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-                        value={profile.specialization || ""}
-                        onChangeText={(v) => updateField("specialization", v)}
-                        placeholder="e.g., AI, ML"
-                        placeholderTextColor={colors.textLight}
-                      />
-                    </View>
                   </View>
                 </>
               )}
@@ -613,7 +473,7 @@ export default function ProfileSettings() {
                   style={[styles.cancelButton, { backgroundColor: colors.background, borderColor: colors.border }]}
                   onPress={() => {
                     setEditMode(false);
-                    fetchUserProfile();
+                    fetchProfile();
                   }}
                 >
                   <Text style={[styles.cancelButtonText, { color: colors.textDark }]}>Cancel</Text>
@@ -632,25 +492,25 @@ export default function ProfileSettings() {
             <>
               <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Personal Information</Text>
               
-              <InfoRow icon="call-outline" label="Phone" value={profile.phone} colors={colors} />
-              <InfoRow icon="home-outline" label="Address" value={profile.address} colors={colors} />
-              <InfoRow icon="calendar-outline" label="Date of Birth" value={profile.dateOfBirth} colors={colors} />
+              <InfoRow icon="mail-outline" label="Email" value={profile.gmail || user?.email} colors={colors} />
+              <InfoRow icon="call-outline" label="Phone" value={profile.phoneNo || user?.phone} colors={colors} />
+              <InfoRow icon="home-outline" label="Address" value={profile.address || user?.address} colors={colors} />
+              <InfoRow icon="business-outline" label="Department" value={profile.department || user?.department} colors={colors} />
 
-              {!isTeacher ? (
+              {isStudent && (
                 <>
                   <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Academic Details</Text>
-                  <InfoRow icon="id-card-outline" label="Roll Number" value={profile.rollNo} colors={colors} />
-                  <InfoRow icon="book-outline" label="Semester" value={profile.semester} colors={colors} />
-                  <InfoRow icon="business-outline" label="Department" value={profile.department} colors={colors} />
-                  <InfoRow icon="barcode-outline" label="Board Roll No" value={profile.boardRollNo} colors={colors} />
+                  <InfoRow icon="barcode-outline" label="Board Roll No" value={profile.boardRollNo || user?.boardRollNo} colors={colors} />
+                  <InfoRow icon="grid-outline" label="Class Roll No" value={profile.classRollNo || user?.classRollNo} colors={colors} />
+                  <InfoRow icon="book-outline" label="Semester" value={profile.semester || user?.semester} colors={colors} />
+                  <InfoRow icon="people-outline" label="Parent Phone" value={profile.parentPhoneNo || user?.parentPhoneNo} colors={colors} />
                 </>
-              ) : (
+              )}
+
+              {isTeacher && (
                 <>
                   <Text style={[styles.sectionTitle, { color: colors.textDark, marginTop: 10 }]}>Professional Details</Text>
-                  <InfoRow icon="business-outline" label="Department" value={profile.department} colors={colors} />
-                  <InfoRow icon="briefcase-outline" label="Designation" value={profile.designation} colors={colors} />
-                  <InfoRow icon="time-outline" label="Experience" value={profile.experience ? profile.experience + " years" : undefined} colors={colors} />
-                  <InfoRow icon="bulb-outline" label="Specialization" value={profile.specialization} colors={colors} />
+                  <InfoRow icon="school-outline" label="Qualification" value={profile.qualification || user?.qualification} colors={colors} />
                 </>
               )}
             </>
@@ -691,7 +551,7 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 10 },
   scrollContent: { paddingBottom: 40 },
-  header: { padding: 20, paddingTop: 40, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
+  header: { padding: 20, paddingTop: 20, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
   headerContent: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
   headerTitle: { fontSize: 20, fontWeight: "bold", color: "#fff" },
@@ -711,6 +571,7 @@ const styles = StyleSheet.create({
   },
   changePhotoText: { fontSize: 13, fontWeight: "600" },
   profileName: { fontSize: 22, fontWeight: "bold", marginTop: 12 },
+  profileEmail: { fontSize: 14, marginTop: 2, marginBottom: 4 },
   roleBadge: { flexDirection: "row", alignItems: "center", paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, gap: 6, marginTop: 8 },
   roleText: { fontSize: 12, fontWeight: "600" },
   editButton: { flexDirection: "row", alignItems: "center", marginTop: 15, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 25, gap: 8 },
@@ -721,6 +582,7 @@ const styles = StyleSheet.create({
   label: { fontSize: 14, fontWeight: "600", marginBottom: 6 },
   input: { borderWidth: 1, borderRadius: 12, paddingHorizontal: 15, paddingVertical: 12, fontSize: 16 },
   textArea: { minHeight: 80, textAlignVertical: "top" },
+  pickerContainer: { borderRadius: 12, borderWidth: 1, overflow: "hidden", marginBottom: 5 },
   row: { flexDirection: "row", gap: 10 },
   buttonRow: { flexDirection: "row", gap: 12, marginTop: 20 },
   cancelButton: { flex: 1, paddingVertical: 14, borderRadius: 12, borderWidth: 1, alignItems: "center" },

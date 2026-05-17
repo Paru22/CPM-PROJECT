@@ -8,9 +8,9 @@ export const LightColors = {
   textLight: "#6B7280",     // Subtle text
   border: "#E2E8F0",        // Softer border
   success: "#10B981",       // Green for success
-  warning: "#F59E0B",       // Orange for warning
+  warning: "#e6b440d0",       // Orange for warning
   error: "#EF4444",         // Red for errors
-  info: "#3B82F6",          // Blue for info
+  info: "#4d8ffa",          // Blue for info
 };
 
 export const DarkColors = {

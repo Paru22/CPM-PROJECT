@@ -6,7 +6,6 @@ import React, { useEffect, useState, useCallback } from "react";
 import {
     ActivityIndicator,
     Alert,
-    Dimensions,
     FlatList,
     Modal,
     ScrollView,
@@ -20,23 +19,18 @@ import { db } from "../../../config/firebaseConfig.native";
 import { useAuth } from "../../../context/AuthContext";
 import { useTheme } from "../../../context/ThemeContext";
 
-const { width } = Dimensions.get("window");
-
 interface Student {
   id: string;
-  Name: string;
-  rollNo: string;
-  phone: string;
+  name: string;
+  boardRollNo: string;
+  classRollNo: string;
+  phoneNo: string;
+  parentPhoneNo: string;
+  gmail: string;
   department: string;
   semester: string;
   address?: string;
-  parentPhone?: string;
-  email?: string;
-  classRollNo?: string;
-  boardRollNo?: string;
   attendance?: any;
-  dateOfBirth?: string;
-  bloodGroup?: string;
 }
 
 interface StudentDetails extends Student {
@@ -44,14 +38,6 @@ interface StudentDetails extends Student {
   presentClasses?: number;
   attendancePercentage?: number;
   monthlyAttendance?: { [key: string]: { present: number; total: number; percentage: number } };
-}
-
-interface TeacherInfo {
-  id: string;
-  name: string;
-  email: string;
-  department: string;
-  role: string;
 }
 
 export default function TeacherStudentList() {
@@ -65,44 +51,163 @@ export default function TeacherStudentList() {
   const [selectedStudent, setSelectedStudent] = useState<StudentDetails | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [attendanceLoading, setAttendanceLoading] = useState(false);
-  const [teacherInfo, setTeacherInfo] = useState<TeacherInfo | null>(null);
   const [classTeacherInfo, setClassTeacherInfo] = useState<any>(null);
   const [availableSemesters, setAvailableSemesters] = useState<string[]>([]);
 
-  // Fetch teacher info and determine role-based access
+  const isHOD = user?.role === "hod";
+
+  // Define fetch functions before useCallback
+  const filterBySemester = (data: Student[], semester: string) => {
+    if (semester === "All") {
+      setFilteredStudents(data);
+    } else {
+      setFilteredStudents(data.filter(s => s.semester === semester));
+    }
+  };
+
+  const fetchAllDepartmentStudents = async (department: string) => {
+    try {
+      const q = query(
+        collection(db, "students"),
+        where("department", "==", department),
+        where("requestStatus", "==", "approved"),
+        orderBy("boardRollNo", "asc")
+      );
+      const querySnapshot = await getDocs(q);
+      
+      const studentList: Student[] = querySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name || "",
+          boardRollNo: data.boardRollNo || "",
+          classRollNo: data.classRollNo || "",
+          phoneNo: data.phoneNo || "",
+          parentPhoneNo: data.parentPhoneNo || "",
+          gmail: data.gmail || "",
+          department: data.department || "",
+          semester: data.semester || "",
+          address: data.address || "",
+        };
+      });
+      
+      setStudents(studentList);
+      filterBySemester(studentList, selectedSemester);
+    } catch (error) {
+      console.error("Error fetching students:", error);
+      
+      try {
+        const q = query(
+          collection(db, "students"),
+          where("department", "==", department),
+          where("requestStatus", "==", "approved")
+        );
+        const querySnapshot = await getDocs(q);
+        
+        const studentList: Student[] = querySnapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.name || "",
+            boardRollNo: data.boardRollNo || "",
+            classRollNo: data.classRollNo || "",
+            phoneNo: data.phoneNo || "",
+            parentPhoneNo: data.parentPhoneNo || "",
+            gmail: data.gmail || "",
+            department: data.department || "",
+            semester: data.semester || "",
+            address: data.address || "",
+          };
+        });
+        
+        studentList.sort((a, b) => a.boardRollNo.localeCompare(b.boardRollNo));
+        setStudents(studentList);
+        filterBySemester(studentList, selectedSemester);
+      } catch (fallbackErr) {
+        console.error("Fallback error:", fallbackErr);
+        Alert.alert("Error", "Failed to load students");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchStudentsBySemester = async (department: string, semester: string) => {
+    try {
+      const q = query(
+        collection(db, "students"),
+        where("department", "==", department),
+        where("semester", "==", semester),
+        where("requestStatus", "==", "approved"),
+        orderBy("boardRollNo", "asc")
+      );
+      const querySnapshot = await getDocs(q);
+      
+      const studentList: Student[] = querySnapshot.docs.map((doc) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name || "",
+          boardRollNo: data.boardRollNo || "",
+          classRollNo: data.classRollNo || "",
+          phoneNo: data.phoneNo || "",
+          parentPhoneNo: data.parentPhoneNo || "",
+          gmail: data.gmail || "",
+          department: data.department || "",
+          semester: data.semester || "",
+          address: data.address || "",
+        };
+      });
+      
+      setStudents(studentList);
+      filterBySemester(studentList, selectedSemester);
+    } catch (error) {
+      console.error("Error fetching students:", error);
+      
+      try {
+        const q = query(
+          collection(db, "students"),
+          where("department", "==", department),
+          where("semester", "==", semester),
+          where("requestStatus", "==", "approved")
+        );
+        const querySnapshot = await getDocs(q);
+        
+        const studentList: Student[] = querySnapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.name || "",
+            boardRollNo: data.boardRollNo || "",
+            classRollNo: data.classRollNo || "",
+            phoneNo: data.phoneNo || "",
+            parentPhoneNo: data.parentPhoneNo || "",
+            gmail: data.gmail || "",
+            department: data.department || "",
+            semester: data.semester || "",
+            address: data.address || "",
+          };
+        });
+        
+        studentList.sort((a, b) => a.boardRollNo.localeCompare(b.boardRollNo));
+        setStudents(studentList);
+        filterBySemester(studentList, selectedSemester);
+      } catch (fallbackErr) {
+        console.error("Fallback error:", fallbackErr);
+        Alert.alert("Error", "Failed to load students");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const fetchTeacherInfo = useCallback(async () => {
     if (!user?.uid) return;
     
     try {
-      const teacherRef = doc(db, "teachers", user.uid);
-      const teacherSnap = await getDoc(teacherRef);
-      
-      if (teacherSnap.exists()) {
-        const teacherData = teacherSnap.data() as TeacherInfo;
-        setTeacherInfo(teacherData);
-        
-        if (teacherData.role === "hod") {
-          setAvailableSemesters(["All", "1", "2", "3", "4", "5", "6"]);
-          await fetchAllStudents(teacherData.department);
-        } else {
-          await fetchClassTeacherAssignment(teacherData);
-        }
-      } else {
-        Alert.alert("Error", "Teacher information not found");
-        setLoading(false);
-      }
-    } catch (error) {
-      console.error("Error fetching teacher info:", error);
-      Alert.alert("Error", "Failed to load teacher information");
-      setLoading(false);
-    }
-  }, [user?.uid]);
-
-  const fetchClassTeacherAssignment = async (teacher: TeacherInfo) => {
-    try {
       const classTeacherQuery = query(
         collection(db, "classTeachers"),
-        where("teacherId", "==", user?.uid)
+        where("teacherId", "==", user.uid)
       );
       const classTeacherSnap = await getDocs(classTeacherQuery);
       
@@ -112,108 +217,24 @@ export default function TeacherStudentList() {
           semester: classData.semester,
           department: classData.department,
         });
-        
         setAvailableSemesters(["All", classData.semester.toString()]);
-        await fetchStudentsByDepartmentAndSemester(teacher.department, classData.semester);
+        await fetchStudentsBySemester(classData.department, classData.semester.toString());
+      } else if (isHOD) {
+        setAvailableSemesters(["All", "1", "2", "3", "4", "5", "6"]);
+        await fetchAllDepartmentStudents(user.department);
       } else {
-        Alert.alert("Access Denied", "No class assigned to you. Contact HOD.");
+        Alert.alert("Access Denied", "No class assigned. Contact HOD.");
         setAvailableSemesters(["All"]);
         setStudents([]);
         setFilteredStudents([]);
         setLoading(false);
       }
     } catch (error) {
-      console.error("Error fetching class teacher assignment:", error);
-      Alert.alert("Error", "Failed to load class assignment");
+      console.error("Error fetching teacher info:", error);
+      Alert.alert("Error", "Failed to load student data");
       setLoading(false);
     }
-  };
-
-  const fetchAllStudents = async (department: string) => {
-    try {
-      const q = query(
-        collection(db, "students"),
-        where("department", "==", department),
-        orderBy("rollNo", "asc")
-      );
-      const querySnapshot = await getDocs(q);
-      
-      const studentList: Student[] = querySnapshot.docs.map((doc) => {
-        const data = doc.data() as Partial<Student>;
-        return {
-          id: doc.id,
-          Name: data.Name ?? "",
-          rollNo: data.rollNo ?? "",
-          phone: data.phone ?? "",
-          department: data.department ?? "",
-          semester: data.semester ?? "",
-          address: data.address ?? "",
-          parentPhone: data.parentPhone ?? "",
-          email: data.email ?? "",
-          classRollNo: data.classRollNo ?? "",
-          boardRollNo: data.boardRollNo ?? "",
-          dateOfBirth: data.dateOfBirth ?? "",
-          bloodGroup: data.bloodGroup ?? "",
-        };
-      });
-      
-      const sortedList = studentList.sort((a, b) => a.rollNo.localeCompare(b.rollNo));
-      setStudents(sortedList);
-      filterBySemester(sortedList, selectedSemester);
-    } catch (error) {
-      console.error("Error fetching students:", error);
-      Alert.alert("Error", "Failed to load students from Firestore.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchStudentsByDepartmentAndSemester = async (department: string, semester: string) => {
-    try {
-      const q = query(
-        collection(db, "students"),
-        where("department", "==", department),
-        where("semester", "==", semester.toString()),
-        orderBy("rollNo", "asc")
-      );
-      const querySnapshot = await getDocs(q);
-      
-      const studentList: Student[] = querySnapshot.docs.map((doc) => {
-        const data = doc.data() as Partial<Student>;
-        return {
-          id: doc.id,
-          Name: data.Name ?? "",
-          rollNo: data.rollNo ?? "",
-          phone: data.phone ?? "",
-          department: data.department ?? "",
-          semester: data.semester ?? "",
-          address: data.address ?? "",
-          parentPhone: data.parentPhone ?? "",
-          email: data.email ?? "",
-          classRollNo: data.classRollNo ?? "",
-          boardRollNo: data.boardRollNo ?? "",
-          dateOfBirth: data.dateOfBirth ?? "",
-          bloodGroup: data.bloodGroup ?? "",
-        };
-      });
-      
-      const sortedList = studentList.sort((a, b) => a.rollNo.localeCompare(b.rollNo));
-      setStudents(sortedList);
-      filterBySemester(sortedList, selectedSemester);
-    } catch (error) {
-      console.error("Error fetching students:", error);
-      Alert.alert("Error", "Failed to load students from Firestore.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const filterBySemester = (data: Student[], semester: string) => {
-    let filtered = data.filter((s) =>
-      semester === "All" ? true : String(s.semester) === semester
-    );
-    setFilteredStudents(filtered);
-  };
+  }, [user]);
 
   const handleSemesterChange = (semester: string) => {
     setSelectedSemester(semester);
@@ -232,12 +253,12 @@ export default function TeacherStudentList() {
         
         const attendanceValues = Object.values(attendance);
         const totalClasses = attendanceValues.length;
-        const presentClasses = attendanceValues.filter((v) => v === "present").length;
+        const presentClasses = attendanceValues.filter((v: any) => v === "present").length;
         const attendancePercentage = totalClasses === 0 ? 0 : Math.round((presentClasses / totalClasses) * 100);
         
         const monthlyAttendance: { [key: string]: { present: number; total: number; percentage: number } } = {};
         
-        Object.entries(attendance).forEach(([date, status]) => {
+        Object.entries(attendance).forEach(([date, status]: [string, any]) => {
           const month = date.substring(0, 7);
           if (!monthlyAttendance[month]) {
             monthlyAttendance[month] = { present: 0, total: 0, percentage: 0 };
@@ -253,7 +274,6 @@ export default function TeacherStudentList() {
         
         const detailedStudent: StudentDetails = {
           ...student,
-          attendance,
           totalClasses,
           presentClasses,
           attendancePercentage,
@@ -297,7 +317,7 @@ export default function TeacherStudentList() {
             { color: colors.textLight },
             selectedSemester === sem && styles.selectedSemesterButtonText
           ]}>
-            {sem === "All" ? "All" : `Sem ${sem}`}
+            {sem === "All" ? "All Semesters" : `Semester ${sem}`}
           </Text>
         </TouchableOpacity>
       ))}
@@ -310,28 +330,31 @@ export default function TeacherStudentList() {
       onPress={() => fetchStudentDetails(item)}
       activeOpacity={0.7}
     >
-      <LinearGradient
-        colors={[colors.card, colors.background]}
-        style={styles.cardGradient}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-      >
+      <View style={styles.cardGradient}>
         <View style={styles.cardHeader}>
           <View style={[styles.serialContainer, { backgroundColor: colors.primary }]}>
             <Text style={styles.serialNumber}>{index + 1}</Text>
           </View>
           <View style={styles.studentInfo}>
-            <Text style={[styles.studentName, { color: colors.textDark }]}>{item.Name}</Text>
-            <Text style={[styles.studentDetail, { color: colors.textLight }]}>Roll No: {item.rollNo}</Text>
-            <Text style={[styles.studentDetail, { color: colors.textLight }]}>Semester: {item.semester}</Text>
+            <Text style={[styles.studentName, { color: colors.textDark }]}>{item.name}</Text>
+            <Text style={[styles.studentDetail, { color: colors.textLight }]}>
+              Board Roll: {item.boardRollNo}
+            </Text>
+            <View style={styles.detailRow}>
+              <Text style={[styles.studentDetail, { color: colors.textLight }]}>
+                Sem: {item.semester}
+              </Text>
+              <Text style={[styles.detailSeparator, { color: colors.textLight }]}>•</Text>
+              <Text style={[styles.studentDetail, { color: colors.textLight }]}>
+                {item.department}
+              </Text>
+            </View>
           </View>
           <Ionicons name="chevron-forward" size={24} color={colors.primary} />
         </View>
-      </LinearGradient>
+      </View>
     </TouchableOpacity>
   );
-
-  const stats = { total: filteredStudents.length };
 
   if (loading) {
     return (
@@ -352,13 +375,13 @@ export default function TeacherStudentList() {
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTitle}>Student Management</Text>
+            <Text style={styles.headerTitle}>Students</Text>
             <Text style={styles.headerSubtitle}>
-              {teacherInfo?.role === "hod" 
-                ? `${teacherInfo?.department} Department - All Students`
+              {isHOD 
+                ? `${user?.department || ""} - All Students`
                 : classTeacherInfo 
-                  ? `${teacherInfo?.department} - Semester ${classTeacherInfo?.semester}`
-                  : "View and manage student records"}
+                  ? `Semester ${classTeacherInfo.semester} - ${classTeacherInfo.department}`
+                  : "View student records"}
             </Text>
           </View>
           <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
@@ -376,11 +399,9 @@ export default function TeacherStudentList() {
         )}
 
         <View style={[styles.statsCard, { backgroundColor: colors.card }]}>
-          <Text style={[styles.statsValue, { color: colors.primary }]}>{stats.total}</Text>
+          <Text style={[styles.statsValue, { color: colors.primary }]}>{filteredStudents.length}</Text>
           <Text style={[styles.statsLabel, { color: colors.textLight }]}>
-            {teacherInfo?.role === "hod" 
-              ? "Students in Selected Semester"
-              : "Students in Your Class"}
+            {selectedSemester === "All" ? "Total Students" : `Semester ${selectedSemester} Students`}
           </Text>
         </View>
 
@@ -388,11 +409,6 @@ export default function TeacherStudentList() {
           <View style={styles.emptyContainer}>
             <Ionicons name="people-outline" size={64} color={colors.textLight} />
             <Text style={[styles.emptyText, { color: colors.textLight }]}>No students found</Text>
-            {teacherInfo?.role !== "hod" && !classTeacherInfo && (
-              <Text style={[styles.emptySubText, { color: colors.textLight }]}>
-                No class assigned to you. Please contact HOD.
-              </Text>
-            )}
           </View>
         ) : (
           <FlatList
@@ -432,62 +448,21 @@ export default function TeacherStudentList() {
                   <View style={styles.infoSection}>
                     <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Personal Information</Text>
                     <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="person-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Full Name:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.Name}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="call-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Phone:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.phone || "N/A"}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="people-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Parent Phone:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.parentPhone || "N/A"}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="mail-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Email:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.email || "N/A"}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="home-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Address:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.address || "N/A"}</Text>
-                      </View>
+                      <InfoRow icon="person-outline" label="Full Name" value={selectedStudent.name} colors={colors} />
+                      <InfoRow icon="call-outline" label="Phone" value={selectedStudent.phoneNo || "N/A"} colors={colors} />
+                      <InfoRow icon="people-outline" label="Parent Phone" value={selectedStudent.parentPhoneNo || "N/A"} colors={colors} />
+                      <InfoRow icon="mail-outline" label="Email" value={selectedStudent.gmail || "N/A"} colors={colors} />
+                      <InfoRow icon="home-outline" label="Address" value={selectedStudent.address || "N/A"} colors={colors} />
                     </View>
                   </View>
 
                   <View style={styles.infoSection}>
                     <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Academic Information</Text>
                     <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="school-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Department:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.department}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="book-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Semester:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.semester}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="qr-code-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Roll No:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.rollNo}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="grid-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Class Roll No:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.classRollNo || "N/A"}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="trophy-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Board Roll No:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.boardRollNo || "N/A"}</Text>
-                      </View>
+                      <InfoRow icon="business-outline" label="Department" value={selectedStudent.department} colors={colors} />
+                      <InfoRow icon="book-outline" label="Semester" value={selectedStudent.semester} colors={colors} />
+                      <InfoRow icon="qr-code-outline" label="Board Roll No" value={selectedStudent.boardRollNo} colors={colors} />
+                      <InfoRow icon="grid-outline" label="Class Roll No" value={selectedStudent.classRollNo || "N/A"} colors={colors} />
                     </View>
                   </View>
 
@@ -496,17 +471,27 @@ export default function TeacherStudentList() {
                     <View style={[styles.attendanceCard, { backgroundColor: colors.background }]}>
                       <View style={styles.attendanceStats}>
                         <View style={styles.attendanceStat}>
-                          <Text style={[styles.attendanceStatValue, { color: colors.primary }]}>{selectedStudent.totalClasses || 0}</Text>
-                          <Text style={[styles.attendanceStatLabel, { color: colors.textLight }]}>Total Classes</Text>
+                          <Text style={[styles.attendanceStatValue, { color: colors.primary }]}>
+                            {selectedStudent.totalClasses || 0}
+                          </Text>
+                          <Text style={[styles.attendanceStatLabel, { color: colors.textLight }]}>Total</Text>
                         </View>
                         <View style={styles.attendanceStat}>
-                          <Text style={[styles.attendanceStatValue, { color: colors.primary }]}>{selectedStudent.presentClasses || 0}</Text>
+                          <Text style={[styles.attendanceStatValue, { color: "#4CAF50" }]}>
+                            {selectedStudent.presentClasses || 0}
+                          </Text>
                           <Text style={[styles.attendanceStatLabel, { color: colors.textLight }]}>Present</Text>
                         </View>
                         <View style={styles.attendanceStat}>
                           <Text style={[
                             styles.attendanceStatValue,
-                            { color: (selectedStudent.attendancePercentage || 0) >= 75 ? "#4CAF50" : (selectedStudent.attendancePercentage || 0) >= 60 ? "#FF9800" : "#F44336" }
+                            { 
+                              color: (selectedStudent.attendancePercentage || 0) >= 75 
+                                ? "#4CAF50" 
+                                : (selectedStudent.attendancePercentage || 0) >= 60 
+                                  ? "#FF9800" 
+                                  : "#F44336" 
+                            }
                           ]}>
                             {selectedStudent.attendancePercentage || 0}%
                           </Text>
@@ -516,42 +501,34 @@ export default function TeacherStudentList() {
                       
                       {selectedStudent.monthlyAttendance && Object.keys(selectedStudent.monthlyAttendance).length > 0 && (
                         <View style={styles.monthlyAttendance}>
-                          <Text style={[styles.monthlyTitle, { color: colors.textDark }]}>Monthly Attendance</Text>
+                          <Text style={[styles.monthlyTitle, { color: colors.textDark }]}>Monthly Breakdown</Text>
                           {Object.entries(selectedStudent.monthlyAttendance)
                             .sort((a, b) => b[0].localeCompare(a[0]))
                             .map(([month, data]) => (
                               <View key={month} style={styles.monthlyItem}>
-                                <Text style={[styles.monthlyMonth, { color: colors.textLight }]}>{month}</Text>
+                                <View style={styles.monthlyHeader}>
+                                  <Text style={[styles.monthlyMonth, { color: colors.textLight }]}>{month}</Text>
+                                  <Text style={[styles.monthlyPercent, { color: colors.textDark }]}>
+                                    {data.present}/{data.total} ({data.percentage}%)
+                                  </Text>
+                                </View>
                                 <View style={[styles.monthlyBar, { backgroundColor: colors.border }]}>
                                   <View style={[
                                     styles.monthlyFill,
-                                    { width: `${data.percentage}%`, backgroundColor: data.percentage >= 75 ? "#4CAF50" : data.percentage >= 60 ? "#FF9800" : "#F44336" }
+                                    { 
+                                      width: `${data.percentage}%`, 
+                                      backgroundColor: data.percentage >= 75 
+                                        ? "#4CAF50" 
+                                        : data.percentage >= 60 
+                                          ? "#FF9800" 
+                                          : "#F44336" 
+                                    }
                                   ]} />
                                 </View>
-                                <Text style={[styles.monthlyPercent, { color: colors.textLight }]}>{data.percentage}%</Text>
-                                <Text style={[styles.monthlyDetails, { color: colors.textLight }]}>
-                                  {data.present}/{data.total} days
-                                </Text>
                               </View>
                             ))}
                         </View>
                       )}
-                    </View>
-                  </View>
-
-                  <View style={styles.infoSection}>
-                    <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Additional Information</Text>
-                    <View style={[styles.infoCard, { backgroundColor: colors.background }]}>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="calendar-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Date of Birth:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.dateOfBirth || "N/A"}</Text>
-                      </View>
-                      <View style={styles.infoRow}>
-                        <Ionicons name="water-outline" size={20} color={colors.primary} />
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Blood Group:</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{selectedStudent.bloodGroup || "N/A"}</Text>
-                      </View>
                     </View>
                   </View>
                 </>
@@ -564,264 +541,74 @@ export default function TeacherStudentList() {
   );
 }
 
+// Helper component - NO export default
+function InfoRow({ icon, label, value, colors }: { icon: string; label: string; value: string; colors: any }) {
+  return (
+    <View style={styles.infoRow}>
+      <Ionicons name={icon as any} size={18} color={colors.primary} />
+      <Text style={[styles.infoLabel, { color: colors.textLight }]}>{label}:</Text>
+      <Text style={[styles.infoValue, { color: colors.textDark }]}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  header: {
-    padding: 20,
-    paddingTop: 20,
-    paddingBottom: 25,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-  },
-  headerContent: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 15,
-  },
-  themeToggle: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  headerTextContainer: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: "#fff",
-    opacity: 0.9,
-    marginTop: 5,
-  },
-  content: {
-    flex: 1,
-    padding: 15,
-  },
-  filterSection: {
-    marginBottom: 15,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: 10,
-  },
-  semesterScroll: {
-    flexGrow: 0,
-  },
-  semesterContainer: {
-    paddingVertical: 5,
-  },
-  semesterButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 10,
-    borderWidth: 1,
-  },
-  selectedSemesterButton: {
-    backgroundColor: "#7384bf",
-    borderColor: "#7384bf",
-  },
-  semesterButtonText: {
-    fontSize: 14,
-  },
-  selectedSemesterButtonText: {
-    color: "#fff",
-    fontWeight: "600",
-  },
-  statsCard: {
-    borderRadius: 12,
-    padding: 15,
-    alignItems: "center",
-    marginBottom: 15,
-  },
-  statsValue: {
-    fontSize: 28,
-    fontWeight: "bold",
-  },
-  statsLabel: {
-    fontSize: 12,
-    marginTop: 5,
-  },
-  listContainer: {
-    paddingBottom: 20,
-  },
-  studentCard: {
-    marginBottom: 10,
-    borderRadius: 12,
-    overflow: "hidden",
-  },
-  cardGradient: {
-    padding: 15,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  serialContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-  serialNumber: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-  studentInfo: {
-    flex: 1,
-  },
-  studentName: {
-    fontSize: 16,
-    fontWeight: "bold",
-    marginBottom: 4,
-  },
-  studentDetail: {
-    fontSize: 12,
-  },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 50,
-  },
-  emptyText: {
-    fontSize: 16,
-    marginTop: 10,
-  },
-  emptySubText: {
-    fontSize: 12,
-    marginTop: 5,
-    textAlign: "center",
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: 50,
-  },
-  loadingText: {
-    marginTop: 10,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    justifyContent: "flex-end",
-  },
-  modalContent: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: "90%",
-  },
-  modalHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 20,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-  },
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#fff",
-  },
-  modalBody: {
-    padding: 20,
-  },
-  infoSection: {
-    marginBottom: 20,
-  },
-  infoCard: {
-    borderRadius: 12,
-    padding: 15,
-  },
-  infoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
-    flexWrap: "wrap",
-  },
-  infoLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginLeft: 8,
-    width: 110,
-  },
-  infoValue: {
-    fontSize: 14,
-    flex: 1,
-  },
-  attendanceCard: {
-    borderRadius: 12,
-    padding: 15,
-  },
-  attendanceStats: {
-    flexDirection: "row",
-    justifyContent: "space-around",
-    marginBottom: 20,
-  },
-  attendanceStat: {
-    alignItems: "center",
-  },
-  attendanceStatValue: {
-    fontSize: 24,
-    fontWeight: "bold",
-  },
-  attendanceStatLabel: {
-    fontSize: 12,
-    marginTop: 5,
-  },
-  monthlyAttendance: {
-    marginTop: 15,
-  },
-  monthlyTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 10,
-  },
-  monthlyItem: {
-    marginBottom: 12,
-  },
-  monthlyMonth: {
-    fontSize: 12,
-    fontWeight: "600",
-    marginBottom: 5,
-  },
-  monthlyBar: {
-    height: 6,
-    borderRadius: 3,
-    overflow: "hidden",
-    marginBottom: 5,
-  },
-  monthlyFill: {
-    height: "100%",
-    borderRadius: 3,
-  },
-  monthlyPercent: {
-    fontSize: 11,
-    marginBottom: 2,
-  },
-  monthlyDetails: {
-    fontSize: 10,
-  },
+  container: { flex: 1 },
+  header: { padding: 20, paddingTop: 20, paddingBottom: 25, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
+  headerContent: { flexDirection: "row", alignItems: "center" },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center", marginRight: 15 },
+  themeToggle: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
+  headerTextContainer: { flex: 1 },
+  headerTitle: { fontSize: 24, fontWeight: "bold", color: "#fff" },
+  headerSubtitle: { fontSize: 14, color: "#fff", opacity: 0.9, marginTop: 5 },
+  content: { flex: 1, padding: 15 },
+  filterSection: { marginBottom: 15 },
+  sectionTitle: { fontSize: 16, fontWeight: "600", marginBottom: 10 },
+  semesterScroll: { flexGrow: 0 },
+  semesterContainer: { paddingVertical: 5 },
+  semesterButton: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20, marginRight: 10, borderWidth: 1 },
+  selectedSemesterButton: { backgroundColor: "#7384bf", borderColor: "#7384bf" },
+  semesterButtonText: { fontSize: 14 },
+  selectedSemesterButtonText: { color: "#fff", fontWeight: "600" },
+  statsCard: { borderRadius: 12, padding: 15, alignItems: "center", marginBottom: 15, elevation: 2 },
+  statsValue: { fontSize: 28, fontWeight: "bold" },
+  statsLabel: { fontSize: 12, marginTop: 5 },
+  listContainer: { paddingBottom: 20 },
+  studentCard: { marginBottom: 10, borderRadius: 12, elevation: 2 },
+  cardGradient: { padding: 15 },
+  cardHeader: { flexDirection: "row", alignItems: "center" },
+  serialContainer: { width: 40, height: 40, borderRadius: 20, justifyContent: "center", alignItems: "center", marginRight: 12 },
+  serialNumber: { fontSize: 16, fontWeight: "bold", color: "#fff" },
+  studentInfo: { flex: 1 },
+  studentName: { fontSize: 16, fontWeight: "bold", marginBottom: 4 },
+  studentDetail: { fontSize: 12 },
+  detailRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  detailSeparator: { fontSize: 12, marginHorizontal: 2 },
+  emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 50 },
+  emptyText: { fontSize: 16, marginTop: 10 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center", paddingVertical: 50 },
+  loadingText: { marginTop: 10 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  modalContent: { borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: "90%" },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
+  modalBody: { padding: 20 },
+  infoSection: { marginBottom: 20 },
+  infoCard: { borderRadius: 12, padding: 15 },
+  infoRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, gap: 8 },
+  infoLabel: { fontSize: 14, fontWeight: "600", width: 100 },
+  infoValue: { fontSize: 14, flex: 1 },
+  attendanceCard: { borderRadius: 12, padding: 15 },
+  attendanceStats: { flexDirection: "row", justifyContent: "space-around", marginBottom: 20 },
+  attendanceStat: { alignItems: "center" },
+  attendanceStatValue: { fontSize: 24, fontWeight: "bold" },
+  attendanceStatLabel: { fontSize: 12, marginTop: 5 },
+  monthlyAttendance: { marginTop: 15 },
+  monthlyTitle: { fontSize: 14, fontWeight: "600", marginBottom: 10 },
+  monthlyItem: { marginBottom: 12 },
+  monthlyHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 5 },
+  monthlyMonth: { fontSize: 12, fontWeight: "600" },
+  monthlyBar: { height: 6, borderRadius: 3, overflow: "hidden", marginBottom: 5 },
+  monthlyFill: { height: "100%", borderRadius: 3 },
+  monthlyPercent: { fontSize: 12 },
 });

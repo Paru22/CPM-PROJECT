@@ -1,211 +1,254 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { addDoc, collection, getDocs, query, where } from "firebase/firestore";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { collection, addDoc, query, where, getDocs} from "firebase/firestore";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { db } from "../../config/firebaseConfig.native";
+import { Picker } from "@react-native-picker/picker";
+import { auth, db } from "../../config/firebaseConfig.native";
 import { useTheme } from "../../context/ThemeContext";
+
+// Your specified departments
+const DEPARTMENTS = [
+  "Civil Engineering",
+  "Electrical Engineering",
+  "Mechanical Engineering",
+  "Computer Engineering",
+  "Automobile Engineering",
+  "Architecture Assistantship",
+  "Electronics & Communication Engineering",
+];
+
+const SEMESTERS = ["1", "2", "3", "4", "5", "6"];
+
+interface StudentFormData {
+  name: string;
+  gmail: string;
+  phoneNo: string;
+  parentPhoneNo: string;
+  department: string;
+  semester: string;
+  boardRollNo: string;
+  classRollNo: string;
+  password: string;
+  confirmPassword: string;
+}
 
 export default function StudentSignup() {
   const router = useRouter();
   const { colors } = useTheme();
-  
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [rollNo, setRollNo] = useState("");
-  const [classRollNo, setClassRollNo] = useState("");
-  const [boardRollNo, setBoardRollNo] = useState("");
-  const [department, setDepartment] = useState("");
-  const [semester, setSemester] = useState("");
-  const [phone, setPhone] = useState("");
-  const [parentPhone, setParentPhone] = useState("");
-  const [address, setAddress] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  const validateEmail = (email: string) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
+  const [formData, setFormData] = useState<StudentFormData>({
+    name: "",
+    gmail: "",
+    phoneNo: "",
+    parentPhoneNo: "",
+    department: "",
+    semester: "",
+    boardRollNo: "",
+    classRollNo: "",
+    password: "",
+    confirmPassword: "",
+  });
+
+  const updateField = (field: keyof StudentFormData, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const validatePhone = (phone: string) => {
-    const phoneRegex = /^[0-9]{10}$/;
-    return phoneRegex.test(phone);
+  // Find class teacher of same department and semester
+ const findClassTeacher = async (department: string, semester: string) => {
+    try {
+      const classTeacherQuery = query(
+        collection(db, "classTeachers"),
+        where("department", "==", department),
+        where("semester", "==", semester)
+      );
+      
+      const snapshot = await getDocs(classTeacherQuery);
+      
+      if (!snapshot.empty) {
+        const classTeacherDoc = snapshot.docs[0];
+        const data = classTeacherDoc.data();
+        return {
+          teacherId: data.teacherId,
+          name: data.teacherName || "Class Teacher", // Use teacherName from document
+        };
+      }
+      
+      return null;
+    } catch  {
+      return null;
+    }
+  };
+  const validateForm = (): string | null => {
+    if (!formData.name.trim()) return "Full Name is required";
+    if (!formData.gmail.trim()) return "Gmail is required";
+    if (!formData.gmail.includes("@gmail.com")) return "Please enter a valid Gmail address";
+    if (!formData.phoneNo.trim()) return "Phone Number is required";
+    if (formData.phoneNo.length < 10) return "Please enter a valid phone number";
+    if (!formData.department) return "Please select your Department";
+    if (!formData.semester) return "Please select your Semester";
+    if (!formData.boardRollNo.trim()) return "Board Roll Number is required";
+    if (!formData.password) return "Password is required";
+    if (formData.password.length < 6) return "Password must be at least 6 characters";
+    if (formData.password !== formData.confirmPassword) return "Passwords do not match";
+    return null;
   };
 
-  const handleRequest = async () => {
-    // Validation
-    if (!name.trim()) {
-      Alert.alert("Error", "Please enter your full name");
-      return;
-    }
-
-    if (!email.trim()) {
-      Alert.alert("Error", "Please enter your email");
-      return;
-    }
-
-    if (!validateEmail(email)) {
-      Alert.alert("Error", "Please enter a valid email address");
-      return;
-    }
-
-    if (!rollNo.trim()) {
-      Alert.alert("Error", "Please enter your roll number");
-      return;
-    }
-
-    if (!classRollNo.trim()) {
-      Alert.alert("Error", "Please enter your class roll number");
-      return;
-    }
-
-    if (!department) {
-      Alert.alert("Error", "Please select your department");
-      return;
-    }
-
-    if (!semester) {
-      Alert.alert("Error", "Please select your semester");
-      return;
-    }
-
-    if (!phone.trim()) {
-      Alert.alert("Error", "Please enter your phone number");
-      return;
-    }
-
-    if (!validatePhone(phone)) {
-      Alert.alert("Error", "Please enter a valid 10-digit phone number");
-      return;
-    }
-
-    if (parentPhone && !validatePhone(parentPhone)) {
-      Alert.alert("Error", "Please enter a valid 10-digit parent phone number");
-      return;
-    }
-
-    if (!password) {
-      Alert.alert("Error", "Please enter a password");
-      return;
-    }
-
-    if (password.length < 6) {
-      Alert.alert("Error", "Password must be at least 6 characters long");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert("Error", "Passwords do not match");
+  const handleRegister = async () => {
+    const validationError = validateForm();
+    if (validationError) {
+      Alert.alert("Validation Error", validationError);
       return;
     }
 
     setLoading(true);
 
     try {
-      // Check if roll number already exists in requests
-      const rollQuery = query(collection(db, "studentRequests"), where("rollNo", "==", rollNo.trim()));
-      const rollSnapshot = await getDocs(rollQuery);
-      
-      if (!rollSnapshot.empty) {
-        Alert.alert("Error", "A request with this roll number already exists");
+      // Check if boardRollNo already exists in students collection
+      const existingStudentQuery = query(
+        collection(db, "students"),
+        where("boardRollNo", "==", formData.boardRollNo.trim())
+      );
+      const existingStudentSnap = await getDocs(existingStudentQuery);
+
+      if (!existingStudentSnap.empty) {
+        Alert.alert(
+          "Already Registered",
+          "A student with this Board Roll Number already exists and is approved."
+        );
         setLoading(false);
         return;
       }
 
-      // Check if student already exists in approved students
-      const studentQuery = query(collection(db, "students"), where("rollNo", "==", rollNo.trim()));
-      const studentSnapshot = await getDocs(studentQuery);
-      
-      if (!studentSnapshot.empty) {
-        Alert.alert("Error", "A student account with this roll number already exists");
+      // Check if already has a pending request
+      const existingRequestQuery = query(
+        collection(db, "studentRequests"),
+        where("boardRollNo", "==", formData.boardRollNo.trim()),
+        where("requestStatus", "==", "pending")
+      );
+      const existingRequestSnap = await getDocs(existingRequestQuery);
+
+      if (!existingRequestSnap.empty) {
+        Alert.alert(
+          "Request Pending",
+          "You already have a pending registration request. Please wait for approval."
+        );
         setLoading(false);
         return;
       }
 
-      // Also check boardRollNo uniqueness
-      if (boardRollNo.trim()) {
-        const boardQuery = query(collection(db, "studentRequests"), where("boardRollNo", "==", boardRollNo.trim().toUpperCase()));
-        const boardSnapshot = await getDocs(boardQuery);
-        
-        if (!boardSnapshot.empty) {
-          Alert.alert("Error", "A request with this Board Roll Number already exists");
-          setLoading(false);
-          return;
-        }
-        
-        const boardStudentQuery = query(collection(db, "students"), where("boardRollNo", "==", boardRollNo.trim().toUpperCase()));
-        const boardStudentSnapshot = await getDocs(boardStudentQuery);
-        
-        if (!boardStudentSnapshot.empty) {
-          Alert.alert("Error", "A student with this Board Roll Number already exists");
-          setLoading(false);
-          return;
-        }
+      // Check if email already used
+      const emailQuery = query(
+        collection(db, "students"),
+        where("gmail", "==", formData.gmail.trim().toLowerCase())
+      );
+      const emailSnap = await getDocs(emailQuery);
+
+      if (!emailSnap.empty) {
+        Alert.alert("Error", "This Gmail is already registered with another account");
+        setLoading(false);
+        return;
       }
 
-      // Create student request with FIELD NAMES MATCHING TEACHER'S EXPECTATIONS
-      await addDoc(collection(db, "studentRequests"), {
-        Name: name.trim(),                    // Capital N to match teacher's code
-        name: name.trim(),                    // Lowercase for backward compatibility
-        email: email.trim().toLowerCase(),
-        rollNo: rollNo.trim(),
-        classRollNo: classRollNo.trim(),
-        boardRollNo: boardRollNo.trim().toUpperCase(),
-        department,
-        semester,
-        phone: phone.trim(),
-        parentPhone: parentPhone.trim() || "",
-        address: address.trim() || "",
-        password,
-        role: "student",
-        status: "pending",
+      // Find class teacher for auto-routing
+      const classTeacher = await findClassTeacher(
+        formData.department,
+        formData.semester
+      );
+
+      // Create Firebase Auth account
+      let firebaseUid: string | null = null;
+      try {
+        const userCredential = await createUserWithEmailAndPassword(
+          auth,
+          formData.gmail.trim().toLowerCase(),
+          formData.password
+        );
+        firebaseUid = userCredential.user.uid;
+      } catch (authError: any) {
+        if (authError.code === "auth/email-already-in-use") {
+          Alert.alert("Error", "This email is already registered. Please use a different email.");
+          setLoading(false);
+          return;
+        }
+        throw authError;
+      }
+
+      // Prepare student data
+      const studentData = {
+        name: formData.name.trim(),
+        gmail: formData.gmail.trim().toLowerCase(),
+        phoneNo: formData.phoneNo.trim(),
+        parentPhoneNo: formData.parentPhoneNo.trim(),
+        department: formData.department,
+        semester: formData.semester,
+        boardRollNo: formData.boardRollNo.trim(),
+        classRollNo: formData.classRollNo.trim(),
+        password: formData.password, // Note: In production, hash this password
+        requestStatus: "pending",
+        classTeacherId: classTeacher?.teacherId || null,
+        classTeacherName: classTeacher?.name || null,
+        firebaseUid: firebaseUid,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      });
+      };
+
+      // Save to studentRequests collection
+      await addDoc(collection(db, "studentRequests"), studentData);
+
+      // Prepare notification message
+      let message = "Your registration request has been submitted successfully.";
+      
+      if (classTeacher) {
+        message += `\n\nYour request has been sent to your Class Teacher (${classTeacher.name || 'Assigned Teacher'}) for approval.`;
+        message += "\n\nYou will be notified once approved.";
+      } else {
+        message += "\n\nNote: No Class Teacher is currently assigned for your department and semester.";
+        message += "\nPlease contact your HOD for assistance.";
+      }
 
       Alert.alert(
-        "Request Sent Successfully!",
-        "Your registration request has been submitted to your class teacher for approval. You will be notified once approved.",
+        "Registration Submitted ✓",
+        message,
         [
           {
             text: "OK",
-            onPress: () => router.back(),
-          },
+            onPress: () => router.replace("/Login/studentlogin")
+          }
         ]
       );
 
-      // Reset form
-      setName("");
-      setEmail("");
-      setRollNo("");
-      setClassRollNo("");
-      setBoardRollNo("");
-      setDepartment("");
-      setSemester("");
-      setPhone("");
-      setParentPhone("");
-      setAddress("");
-      setPassword("");
-      setConfirmPassword("");
+    } catch (error: any) {
+      console.error("Registration error:", error);
       
-    } catch (error) {
-      console.error("Signup error:", error);
-      Alert.alert("Error", "Something went wrong. Please try again.");
+      let errorMessage = "Failed to submit registration. Please try again.";
+      
+      if (error.code === "auth/email-already-in-use") {
+        errorMessage = "This email is already registered.";
+      } else if (error.code === "auth/invalid-email") {
+        errorMessage = "Please enter a valid email address.";
+      } else if (error.code === "auth/weak-password") {
+        errorMessage = "Password is too weak. Please use a stronger password.";
+      }
+      
+      Alert.alert("Error", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -213,379 +256,380 @@ export default function StudentSignup() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
-        <View style={styles.headerContent}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTitle}>Student Registration</Text>
-            <Text style={styles.headerSubtitle}>Request account for class teacher approval</Text>
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.keyboardView}
+      >
+        {/* Header */}
+        <LinearGradient 
+          colors={[colors.primary, colors.secondary]} 
+          style={styles.header}
+        >
+          <View style={styles.headerContent}>
+            <TouchableOpacity 
+              onPress={() => router.back()} 
+              style={styles.backButton}
+              disabled={loading}
+            >
+              <Ionicons name="arrow-back" size={24} color="#fff" />
+            </TouchableOpacity>
+            <View>
+              <Text style={styles.headerTitle}>Student Registration</Text>
+              <Text style={styles.headerSubtitle}>Join your college community</Text>
+            </View>
           </View>
-        </View>
-      </LinearGradient>
+        </LinearGradient>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={[styles.formCard, { backgroundColor: colors.card }]}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={styles.formContainer}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Personal Information Section */}
-          <Text style={[styles.sectionTitle, { color: colors.primary }]}>Personal Information</Text>
-          
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>Full Name *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="person-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Enter your full name"
-                placeholderTextColor={colors.textLight}
-                value={name}
-                onChangeText={setName}
-              />
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="person-circle-outline" size={22} color={colors.primary} />
+              <Text style={[styles.sectionTitle, { color: colors.textDark }]}>
+                Personal Information
+              </Text>
             </View>
+
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.card, color: colors.textDark, borderColor: colors.border }]}
+              placeholder="Full Name *"
+              placeholderTextColor={colors.textLight}
+              value={formData.name}
+              onChangeText={(v) => updateField("name", v)}
+              editable={!loading}
+            />
+            
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.card, color: colors.textDark, borderColor: colors.border }]}
+              placeholder="Gmail Address * (example@gmail.com)"
+              placeholderTextColor={colors.textLight}
+              value={formData.gmail}
+              onChangeText={(v) => updateField("gmail", v)}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!loading}
+            />
+            
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.card, color: colors.textDark, borderColor: colors.border }]}
+              placeholder="Phone Number *"
+              placeholderTextColor={colors.textLight}
+              value={formData.phoneNo}
+              onChangeText={(v) => updateField("phoneNo", v)}
+              keyboardType="phone-pad"
+              maxLength={10}
+              editable={!loading}
+            />
+            
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.card, color: colors.textDark, borderColor: colors.border }]}
+              placeholder="Parent's Phone Number"
+              placeholderTextColor={colors.textLight}
+              value={formData.parentPhoneNo}
+              onChangeText={(v) => updateField("parentPhoneNo", v)}
+              keyboardType="phone-pad"
+              maxLength={10}
+              editable={!loading}
+            />
           </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>Email Address *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="mail-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Enter your email"
-                placeholderTextColor={colors.textLight}
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-              />
+          {/* Academic Information Section */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="school-outline" size={22} color={colors.primary} />
+              <Text style={[styles.sectionTitle, { color: colors.textDark }]}>
+                Academic Information
+              </Text>
             </View>
-          </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>Phone Number *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="call-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Enter 10-digit phone number"
-                placeholderTextColor={colors.textLight}
-                value={phone}
-                onChangeText={setPhone}
-                keyboardType="phone-pad"
-                maxLength={10}
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>{"Parent's Phone Number"}</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="people-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Enter parent's phone number"
-                placeholderTextColor={colors.textLight}
-                value={parentPhone}
-                onChangeText={setParentPhone}
-                keyboardType="phone-pad"
-                maxLength={10}
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>Address</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="home-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, styles.textArea, { color: colors.textDark }]}
-                placeholder="Enter your address"
-                placeholderTextColor={colors.textLight}
-                value={address}
-                onChangeText={setAddress}
-                multiline
-                numberOfLines={3}
-              />
-            </View>
-          </View>
-
-          <Text style={[styles.sectionTitle, { color: colors.primary, marginTop: 20 }]}>Academic Information</Text>
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>University Roll Number *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="qr-code-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Enter university roll number (e.g., STU001)"
-                placeholderTextColor={colors.textLight}
-                value={rollNo}
-                onChangeText={setRollNo}
-                autoCapitalize="characters"
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>Class Roll Number *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="grid-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Enter class roll number (e.g., 01)"
-                placeholderTextColor={colors.textLight}
-                value={classRollNo}
-                onChangeText={setClassRollNo}
-                keyboardType="numeric"
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>Board Roll Number</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="trophy-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Enter board roll number"
-                placeholderTextColor={colors.textLight}
-                value={boardRollNo}
-                onChangeText={setBoardRollNo}
-                autoCapitalize="characters"
-              />
-            </View>
-          </View>
-
-          <View style={styles.inputContainer}>
             <Text style={[styles.label, { color: colors.textDark }]}>Department *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="business-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Select department"
-                placeholderTextColor={colors.textLight}
-                value={department}
-                onChangeText={setDepartment}
-              />
+            <View style={[styles.pickerContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Picker
+                selectedValue={formData.department}
+                onValueChange={(v) => updateField("department", v)}
+                dropdownIconColor={colors.textDark}
+                enabled={!loading}
+              >
+                <Picker.Item label="Select Department" value="" color={colors.textLight} />
+                {DEPARTMENTS.map((dept) => (
+                  <Picker.Item key={dept} label={dept} value={dept} color={colors.textDark} />
+                ))}
+              </Picker>
             </View>
-            <Text style={[styles.hintText, { color: colors.textLight }]}>Enter: Computer Engineering, IT, etc.</Text>
-          </View>
 
-          <View style={styles.inputContainer}>
             <Text style={[styles.label, { color: colors.textDark }]}>Semester *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="book-outline" size={20} color={colors.primary} style={styles.inputIcon} />
-              <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Enter semester (1-8)"
-                placeholderTextColor={colors.textLight}
-                value={semester}
-                onChangeText={setSemester}
-                keyboardType="numeric"
-                maxLength={1}
-              />
+            <View style={[styles.pickerContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Picker
+                selectedValue={formData.semester}
+                onValueChange={(v) => updateField("semester", v)}
+                dropdownIconColor={colors.textDark}
+                enabled={!loading}
+              >
+                <Picker.Item label="Select Semester" value="" color={colors.textLight} />
+                {SEMESTERS.map((sem) => (
+                  <Picker.Item key={sem} label={`Semester ${sem}`} value={sem} color={colors.textDark} />
+                ))}
+              </Picker>
             </View>
+
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.card, color: colors.textDark, borderColor: colors.border }]}
+              placeholder="Board Roll Number *"
+              placeholderTextColor={colors.textLight}
+              value={formData.boardRollNo}
+              onChangeText={(v) => updateField("boardRollNo", v)}
+              autoCapitalize="characters"
+              editable={!loading}
+            />
+            
+            <TextInput
+              style={[styles.input, { backgroundColor: colors.card, color: colors.textDark, borderColor: colors.border }]}
+              placeholder="Class Roll Number"
+              placeholderTextColor={colors.textLight}
+              value={formData.classRollNo}
+              onChangeText={(v) => updateField("classRollNo", v)}
+              editable={!loading}
+            />
           </View>
 
-          <Text style={[styles.sectionTitle, { color: colors.primary, marginTop: 20 }]}>Account Security</Text>
+          {/* Account Security Section */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="lock-closed-outline" size={22} color={colors.primary} />
+              <Text style={[styles.sectionTitle, { color: colors.textDark }]}>
+                Account Security
+              </Text>
+            </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>Password *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="lock-closed-outline" size={20} color={colors.primary} style={styles.inputIcon} />
+            <View style={[styles.passwordContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
               <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Create password (min. 6 characters)"
+                style={[styles.passwordInput, { color: colors.textDark }]}
+                placeholder="Password * (min 6 characters)"
                 placeholderTextColor={colors.textLight}
-                value={password}
-                onChangeText={setPassword}
+                value={formData.password}
+                onChangeText={(v) => updateField("password", v)}
                 secureTextEntry={!showPassword}
+                editable={!loading}
               />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
-                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.primary} />
+              <TouchableOpacity 
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons 
+                  name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                  size={20} 
+                  color={colors.primary} 
+                />
               </TouchableOpacity>
             </View>
-          </View>
 
-          <View style={styles.inputContainer}>
-            <Text style={[styles.label, { color: colors.textDark }]}>Confirm Password *</Text>
-            <View style={[styles.inputWrapper, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <Ionicons name="lock-closed-outline" size={20} color={colors.primary} style={styles.inputIcon} />
+            <View style={[styles.passwordContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
               <TextInput
-                style={[styles.input, { color: colors.textDark }]}
-                placeholder="Confirm your password"
+                style={[styles.passwordInput, { color: colors.textDark }]}
+                placeholder="Confirm Password *"
                 placeholderTextColor={colors.textLight}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
+                value={formData.confirmPassword}
+                onChangeText={(v) => updateField("confirmPassword", v)}
                 secureTextEntry={!showConfirmPassword}
+                editable={!loading}
               />
-              <TouchableOpacity onPress={() => setShowConfirmPassword(!showConfirmPassword)} style={styles.eyeIcon}>
-                <Ionicons name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.primary} />
+              <TouchableOpacity 
+                onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons 
+                  name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} 
+                  size={20} 
+                  color={colors.primary} 
+                />
               </TouchableOpacity>
             </View>
           </View>
 
-          <View style={[styles.infoBox, { backgroundColor: `${colors.primary}15` }]}>
-            <Ionicons name="information-circle-outline" size={20} color={colors.primary} />
-            <Text style={[styles.infoText, { color: colors.primary }]}>
-              {"Your request will be reviewed by your class teacher. You'll receive approval notification once verified."}
-            </Text>
-          </View>
-
-          <TouchableOpacity onPress={handleRequest} disabled={loading}>
-            <LinearGradient
-              colors={[colors.primary, colors.secondary]}
-              style={styles.submitButton}
+          {/* Submit Button */}
+          <TouchableOpacity 
+            style={[styles.submitBtn, loading && { opacity: 0.7 }]} 
+            onPress={handleRegister} 
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            <LinearGradient 
+              colors={[colors.primary, colors.secondary]} 
+              style={styles.submitGradient}
             >
               {loading ? (
-                <ActivityIndicator color="#fff" />
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.loadingText}>Submitting...</Text>
+                </View>
               ) : (
-                <>
-                  <Ionicons name="send-outline" size={20} color="white" />
-                  <Text style={styles.submitButtonText}>Submit Request</Text>
-                </>
+                <View style={styles.submitContent}>
+                  <Ionicons name="paper-plane" size={20} color="#fff" />
+                  <Text style={styles.submitText}>Submit Registration</Text>
+                </View>
               )}
             </LinearGradient>
           </TouchableOpacity>
 
-          <View style={styles.loginContainer}>
-            <Text style={[styles.loginText, { color: colors.textLight }]}>Already have an account? </Text>
-            <TouchableOpacity onPress={() => router.push("/Login/studentlogin")}>
-              <Text style={[styles.loginLink, { color: colors.primary }]}>Login here</Text>
-            </TouchableOpacity>
+          {/* Info Note */}
+          <View style={styles.infoContainer}>
+            <Ionicons name="information-circle-outline" size={18} color={colors.textLight} />
+            <Text style={[styles.note, { color: colors.textLight }]}>
+              Your registration will be sent to your Class Teacher for approval.
+              You can login once approved.
+            </Text>
           </View>
-        </View>
-      </ScrollView>
+
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  container: { 
+    flex: 1 
   },
-  header: {
-    padding: 20,
-    paddingTop: 40,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+  keyboardView: {
+    flex: 1
   },
-  headerContent: {
-    flexDirection: "row",
-    alignItems: "center",
+  header: { 
+    padding: 20, 
+    paddingTop: 20,
+    borderBottomLeftRadius: 25, 
+    borderBottomRightRadius: 25,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
   },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 15,
+  headerContent: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    gap: 15 
   },
-  headerTextContainer: {
-    flex: 1,
+  backButton: { 
+    width: 40, 
+    height: 40, 
+    borderRadius: 20, 
+    backgroundColor: "rgba(255,255,255,0.2)", 
+    justifyContent: "center", 
+    alignItems: "center" 
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: "bold",
-    color: "#fff",
+  headerTitle: { 
+    fontSize: 22, 
+    fontWeight: "bold", 
+    color: "#fff" 
   },
   headerSubtitle: {
-    fontSize: 14,
-    color: "#fff",
-    opacity: 0.9,
-    marginTop: 5,
+    fontSize: 13,
+    color: "rgba(255,255,255,0.9)",
+    marginTop: 2,
   },
-  content: {
-    flex: 1,
-    padding: 20,
+  formContainer: { 
+    padding: 20 
   },
-  formCard: {
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 20,
-    elevation: 3,
+  section: {
+    marginBottom: 25,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     marginBottom: 15,
-    marginTop: 10,
   },
-  inputContainer: {
-    marginBottom: 20,
+  sectionTitle: { 
+    fontSize: 18, 
+    fontWeight: "bold",
   },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginBottom: 8,
+  label: { 
+    fontSize: 14, 
+    fontWeight: "600", 
+    marginBottom: 8, 
+    marginTop: 5 
   },
-  inputWrapper: {
+  input: { 
+    borderWidth: 1, 
+    borderRadius: 12, 
+    paddingHorizontal: 15, 
+    paddingVertical: 13, 
+    fontSize: 15, 
+    marginBottom: 12 
+  },
+  passwordContainer: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
     borderRadius: 12,
-    paddingHorizontal: 12,
+    marginBottom: 12,
   },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
+  passwordInput: {
     flex: 1,
-    paddingVertical: 14,
-    fontSize: 16,
-  },
-  textArea: {
-    minHeight: 80,
-    textAlignVertical: "top",
-    paddingTop: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 13,
+    fontSize: 15,
   },
   eyeIcon: {
-    padding: 8,
+    padding: 10,
   },
-  hintText: {
-    fontSize: 12,
-    marginTop: 5,
-    marginLeft: 5,
+  pickerContainer: { 
+    borderRadius: 12, 
+    borderWidth: 1, 
+    overflow: "hidden", 
+    marginBottom: 12 
   },
-  infoBox: {
-    flexDirection: "row",
-    padding: 12,
-    borderRadius: 12,
-    marginBottom: 20,
-    gap: 10,
-    alignItems: "flex-start",
+  submitBtn: { 
+    marginTop: 30, 
+    borderRadius: 15, 
+    overflow: "hidden",
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
   },
-  infoText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 18,
+  submitGradient: { 
+    padding: 16, 
+    alignItems: "center" 
   },
-  submitButton: {
+  submitContent: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    borderRadius: 12,
     gap: 8,
-    marginBottom: 20,
   },
-  submitButtonText: {
+  submitText: { 
+    color: "#fff", 
+    fontSize: 18, 
+    fontWeight: "bold" 
+  },
+  loadingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  loadingText: {
     color: "#fff",
     fontSize: 16,
-    fontWeight: "bold",
   },
-  loginContainer: {
+  infoContainer: {
     flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 10,
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 20,
+    paddingHorizontal: 5,
   },
-  loginText: {
-    fontSize: 14,
-  },
-  loginLink: {
-    fontSize: 14,
-    fontWeight: "600",
+  note: { 
+    fontSize: 13, 
+    textAlign: "left",
+    fontStyle: "italic",
+    flex: 1,
+    lineHeight: 18,
   },
 });

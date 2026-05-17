@@ -12,108 +12,143 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc } from "firebase/firestore";
+import { collection, doc, getDocs, setDoc, updateDoc, query, where } from "firebase/firestore";
 
 import { db } from "../../../config/firebaseConfig.native";
 import { useTheme } from "../../../context/ThemeContext";
+import { useAuth } from "../../../context/AuthContext";
 
 interface TeacherRequest {
   id: string;
   teacherId?: string;
   name: string;
-  email: string;
+  gmail: string;
   department: string;
-  phone?: string;        // ✅ added optional phone field
-  status: string;
+  phoneNo?: string;
+  qualification?: string;
+  address?: string;
+  requestStatus: string;
+  createdAt: any;
 }
 
 const HODNotifications = () => {
   const router = useRouter();
   const { colors, theme, toggleTheme } = useTheme();
+  const { user } = useAuth();
   const [requests, setRequests] = useState<TeacherRequest[]>([]);
   const [loading, setLoading] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    fetchRequests();
-  }, []);
-
   const fetchRequests = async () => {
     setLoading(true);
     try {
-      const snapshot = await getDocs(collection(db, "teacherRequests"));
+      const hodDepartment = user?.department;
+      
+      let snapshot;
+      if (hodDepartment) {
+        const q = query(
+          collection(db, "teacherRequests"),
+          where("department", "==", hodDepartment),
+          where("requestStatus", "==", "pending")
+        );
+        snapshot = await getDocs(q);
+      } else {
+        snapshot = await getDocs(collection(db, "teacherRequests"));
+      }
+      
       const pending = snapshot.docs
         .map((docSnap) => ({
           id: docSnap.id,
           ...(docSnap.data() as any),
         }))
-        .filter((item) => item.status === "pending");
+        .filter((item) => {
+          if (hodDepartment) return true;
+          return item.requestStatus === "pending" || item.status === "pending";
+        });
+      
       setRequests(pending);
     } catch (error: any) {
       console.error("Fetch error:", error);
-      Alert.alert("Error", "Failed to fetch requests: " + error.message);
+      
+      try {
+        const snapshot = await getDocs(collection(db, "teacherRequests"));
+        const pending = snapshot.docs
+          .map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as any),
+          }))
+          .filter((item: any) => {
+            const status = item.requestStatus || item.status;
+            const dept = item.department;
+            if (user?.department) {
+              return status === "pending" && dept === user.department;
+            }
+            return status === "pending";
+          });
+        setRequests(pending);
+      } catch (fallbackErr) {
+        console.error("Fallback error:", fallbackErr);
+        Alert.alert("Error", "Failed to fetch requests");
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  const approveTeacher = async (teacher: TeacherRequest) => {
-  if (approvingId === teacher.id) return;
-  setApprovingId(teacher.id);
-
-  try {
-    console.log("📝 Approving teacher:", teacher.email);
-    console.log("📝 Teacher UID (will be used as document ID):", teacher.id);
-    
-    // 1. Update the request status to 'approved'
-    await updateDoc(doc(db, "teacherRequests", teacher.id), {
-      status: "approved",
-      approvedAt: new Date().toISOString(),
-    });
-    console.log("✅ Request status updated to approved");
-
-    // 2. Create the teacher document in 'teachers' collection
-    const teacherDocRef = doc(db, "teachers", teacher.id);
-    const teacherData = {
-      uid: teacher.id,
-      name: teacher.name,
-      email: teacher.email,
-      department: teacher.department,
-      role: "teacher",
-      approvedAt: new Date().toISOString(),
-      phone: teacher.phone || "",
-    };
-    
-    console.log("📝 Creating teacher document with data:", teacherData);
-    await setDoc(teacherDocRef, teacherData);
-    console.log("✅ Teacher document created at:", teacherDocRef.path);
-
-    // Verify the document was created
-    const verifyDoc = await getDoc(teacherDocRef);
-    if (verifyDoc.exists()) {
-      console.log("✅ Verification: Teacher document exists!");
-    } else {
-      console.log("❌ Verification: Teacher document NOT found!");
-    }
-
-    Alert.alert("Success", `✅ Teacher ${teacher.name} approved. They can now log in.`);
+  useEffect(() => {
     fetchRequests();
-  } catch (error: any) {
-    console.error("❌ Approval error:", error);
-    let errorMsg = error.message;
-    if (error.code === 'permission-denied') {
-      errorMsg = 'Firestore permission denied. Check security rules.';
-    }
-    Alert.alert("Approval Failed", errorMsg);
-  } finally {
-    setApprovingId(null);
-  }
-};
+  }, [user]);
 
-  const rejectTeacher = async (id: string) => {
+  const approveTeacher = async (teacher: TeacherRequest) => {
+    if (approvingId === teacher.id) return;
+    setApprovingId(teacher.id);
+
+    try {
+      await updateDoc(doc(db, "teacherRequests", teacher.id), {
+        requestStatus: "approved",
+        status: "approved",
+        approvedAt: new Date().toISOString(),
+        approvedBy: user?.uid,
+      });
+
+      const teacherDocRef = doc(db, "teachers", teacher.id);
+      const teacherData = {
+        uid: teacher.id,
+        teacherId: teacher.id,
+        name: teacher.name,
+        gmail: teacher.gmail,
+        department: teacher.department,
+        phoneNo: teacher.phoneNo || "",
+        qualification: teacher.qualification || "",
+        address: teacher.address || "",
+        role: "teacher",
+        requestStatus: "approved",
+        approvedBy: user?.uid,
+        approvedAt: new Date().toISOString(),
+        createdAt: teacher.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      
+      await setDoc(teacherDocRef, teacherData);
+
+      Alert.alert("Success", `✅ Teacher ${teacher.name} has been approved. They can now log in.`);
+      fetchRequests();
+    } catch (error: any) {
+      console.error("❌ Approval error:", error);
+      let errorMsg = error.message;
+      if (error.code === 'permission-denied') {
+        errorMsg = 'Firestore permission denied. Check security rules.';
+      }
+      Alert.alert("Approval Failed", errorMsg);
+    } finally {
+      setApprovingId(null);
+    }
+  };
+
+  const rejectTeacher = async (teacher: TeacherRequest) => {
     Alert.alert(
       "Confirm Rejection",
-      "Are you sure you want to reject this teacher request?",
+      `Are you sure you want to reject ${teacher.name}'s request?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -121,9 +156,11 @@ const HODNotifications = () => {
           style: "destructive",
           onPress: async () => {
             try {
-              await updateDoc(doc(db, "teacherRequests", id), {
+              await updateDoc(doc(db, "teacherRequests", teacher.id), {
+                requestStatus: "rejected",
                 status: "rejected",
                 rejectedAt: new Date().toISOString(),
+                rejectedBy: user?.uid,
               });
               Alert.alert("Success", "Teacher request rejected ❌");
               fetchRequests();
@@ -141,6 +178,7 @@ const HODNotifications = () => {
 
   const renderItem = ({ item }: { item: TeacherRequest }) => {
     const isApproving = approvingId === item.id;
+    
     return (
       <LinearGradient
         colors={[colors.card, `${colors.background}`]}
@@ -156,12 +194,26 @@ const HODNotifications = () => {
             <Text style={[styles.name, { color: colors.textDark }]}>{item.name}</Text>
             <View style={styles.detailRow}>
               <Ionicons name="mail-outline" size={14} color={colors.textLight} />
-              <Text style={[styles.email, { color: colors.textLight }]}>{item.email}</Text>
+              <Text style={[styles.email, { color: colors.textLight }]}>{item.gmail}</Text>
             </View>
             <View style={styles.detailRow}>
               <Ionicons name="business-outline" size={14} color={colors.textLight} />
               <Text style={[styles.department, { color: colors.textLight }]}>Dept: {item.department}</Text>
             </View>
+            {item.qualification && (
+              <View style={styles.detailRow}>
+                <Ionicons name="school-outline" size={14} color={colors.textLight} />
+                <Text style={[styles.department, { color: colors.textLight }]}>
+                  {item.qualification}
+                </Text>
+              </View>
+            )}
+            {item.phoneNo && (
+              <View style={styles.detailRow}>
+                <Ionicons name="call-outline" size={14} color={colors.textLight} />
+                <Text style={[styles.department, { color: colors.textLight }]}>{item.phoneNo}</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -183,7 +235,7 @@ const HODNotifications = () => {
 
           <TouchableOpacity
             style={styles.rejectBtn}
-            onPress={() => rejectTeacher(item.id)}
+            onPress={() => rejectTeacher(item)}
             disabled={isApproving}
           >
             <Ionicons name="close-circle" size={20} color="white" />
@@ -204,10 +256,11 @@ const HODNotifications = () => {
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>🔔 Teacher Requests</Text>
             <Text style={styles.headerSubtitle}>
-              Approve or reject new teacher applications
+              {user?.department 
+                ? `${user.department} - Pending Approvals`
+                : "Approve or reject new teacher applications"}
             </Text>
           </View>
-          {/* Theme Toggle Button */}
           <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
             <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
           </TouchableOpacity>
@@ -259,7 +312,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 20,
     elevation: 3,
-    boxShadow: "0px 2px 4px rgba(0,0,0,0.1)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
   statsValue: { fontSize: 36, fontWeight: "bold" },
   statsLabel: { fontSize: 14, marginTop: 5 },
@@ -269,7 +325,10 @@ const styles = StyleSheet.create({
     padding: 15,
     marginBottom: 12,
     elevation: 2,
-    boxShadow: "0px 1px 2px rgba(0,0,0,0.05)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
   },
   cardHeader: { flexDirection: "row", marginBottom: 12 },
   iconContainer: { marginRight: 12 },

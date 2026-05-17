@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
 import { useRouter, useFocusEffect } from "expo-router";
 import {
     collection,
@@ -10,7 +9,10 @@ import {
     updateDoc,
     where,
     onSnapshot,
+    setDoc,
 } from "firebase/firestore";
+import { getDownloadURL, getStorage, ref, uploadBytes } from "firebase/storage";
+import * as ImagePicker from "expo-image-picker";
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import {
     ActivityIndicator,
@@ -19,28 +21,26 @@ import {
     FlatList,
     Modal,
     RefreshControl,
-    ScrollView,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
     View,
-    LogBox,
+    Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { db, auth } from "../../../config/firebaseConfig.native";
 import { useTheme } from "../../../context/ThemeContext";
+import { useAuth } from "../../../context/AuthContext";
 
-// Ignore specific warnings
-LogBox.ignoreLogs(['@firebase/firestore']);
-
+// Keep all your interfaces the same
 interface Subject {
   id: string;
   name: string;
   department: string;
   semester: number;
   credits: number;
+  subjectCode?: string;
 }
 
 interface Student {
@@ -51,21 +51,32 @@ interface Student {
   department: string;
   email?: string;
   phone?: string;
+  gmail?: string;
+  boardRollNo?: string;
+  classRollNo?: string;
+  phoneNo?: string;
+  parentPhoneNo?: string;
 }
 
 interface StudentRequest {
   id: string;
-  studentId: string;
-  studentName: string;
-  title: string;
-  message: string;
-  status: "pending" | "approved" | "rejected";
+  name: string;
+  gmail: string;
+  department: string;
+  semester: string;
+  boardRollNo: string;
+  classRollNo?: string;
+  phoneNo?: string;
+  parentPhoneNo?: string;
+  requestStatus: string;
   createdAt: any;
 }
 
 export default function ClassTeacherDashboard() {
   const router = useRouter();
   const { colors, theme, toggleTheme } = useTheme();
+  const { user } = useAuth(); // Get logged-in teacher info
+  
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [classTeacherInfo, setClassTeacherInfo] = useState<any>(null);
@@ -76,68 +87,87 @@ export default function ClassTeacherDashboard() {
   const [showRequestsModal, setShowRequestsModal] = useState(false);
   const [showStudentsModal, setShowStudentsModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [debugInfo, setDebugInfo] = useState<string>("");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
-  // Animation values
+  const storage = getStorage();
   const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.95)).current;
-  const themeRotateAnim = useRef(new Animated.Value(0)).current;
-  const statsScaleAnim = useRef(new Animated.Value(1)).current;
+  const slideAnim = useRef(new Animated.Value(40)).current;
 
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, {
         toValue: 1,
-        duration: 600,
+        duration: 500,
         useNativeDriver: true,
       }),
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  const handleThemeToggle = () => {
-    Animated.sequence([
-      Animated.timing(themeRotateAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.timing(themeRotateAnim, {
+      Animated.timing(slideAnim, {
         toValue: 0,
-        duration: 0,
+        duration: 500,
         useNativeDriver: true,
       }),
     ]).start();
-    toggleTheme();
+  }, [fadeAnim, slideAnim]);
+
+  // Pick image from gallery - KEEP AS IS
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Required", "Please allow access to your photo library.");
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0].uri) {
+        uploadProfileImage(result.assets[0].uri);
+      }
+    } catch (err) {
+      console.error("Image picker error:", err);
+    }
   };
 
-  const themeSpin = themeRotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
+  // Upload profile image - KEEP AS IS
+  const uploadProfileImage = async (uri: string) => {
+    if (!auth.currentUser?.uid) {
+      Alert.alert("Error", "User not authenticated");
+      return;
+    }
 
-  const animateStatCard = () => {
-    Animated.sequence([
-      Animated.timing(statsScaleAnim, {
-        toValue: 0.95,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-      Animated.spring(statsScaleAnim, {
-        toValue: 1,
-        friction: 3,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]).start();
+    setUploadingPhoto(true);
+    
+    try {
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      
+      const fileName = `teacher_${auth.currentUser.uid}_${Date.now()}.jpg`;
+      const storageRef = ref(storage, `profileImages/${fileName}`);
+      
+      await uploadBytes(storageRef, blob);
+      const downloadURL = await getDownloadURL(storageRef);
+      
+      const userRef = doc(db, "teachers", auth.currentUser.uid);
+      await updateDoc(userRef, {
+        profileImage: downloadURL,
+        updatedAt: new Date().toISOString()
+      });
+      
+      setTeacherInfo((prev: any) => ({ ...prev, profileImage: downloadURL }));
+      Alert.alert("Success", "Profile photo updated!");
+      
+    } catch (err: any) {
+      console.error("Upload error:", err);
+      Alert.alert("Upload Failed", err.message || "Unknown error");
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
-  // Handle Logout
   const handleLogout = async () => {
     Alert.alert(
       "Logout",
@@ -149,13 +179,10 @@ export default function ClassTeacherDashboard() {
           style: "destructive",
           onPress: async () => {
             try {
-              await AsyncStorage.removeItem("teacherUser");
-              await AsyncStorage.removeItem("userType");
               await auth.signOut();
               router.replace("/");
-            } catch (error) {
-              console.error("Logout error:", error);
-              Alert.alert("Error", "Failed to logout");
+            } catch (err) {
+              console.error("Logout error:", err);
             }
           }
         }
@@ -163,7 +190,6 @@ export default function ClassTeacherDashboard() {
     );
   };
 
-  // Navigation functions
   const navigateToAttendance = () => {
     router.push("/Tabs/Teacherdashboard/Attendence");
   };
@@ -179,8 +205,6 @@ export default function ClassTeacherDashboard() {
         pathname: "/Tabs/ProfileSettings",
         params: { userId: userId }
       });
-    } else {
-      router.push("/Tabs/ProfileSettings");
     }
   };
 
@@ -188,69 +212,122 @@ export default function ClassTeacherDashboard() {
     router.push("/Tabs/Teacherdashboard/ClassTeacherNotifications");
   };
 
-  // Direct fetch function for teacher data
-  const fetchTeacherDataDirect = async () => {
-    if (!auth.currentUser?.uid) return;
-
-    try {
-      const teacherRef = doc(db, "teachers", auth.currentUser.uid);
-      const teacherSnap = await getDoc(teacherRef);
-      
-      if (teacherSnap.exists()) {
-        const teacherData = teacherSnap.data();
-        setTeacherInfo(teacherData);
-      }
-    } catch (error) {
-      console.error("Error fetching teacher data:", error);
-    }
-  };
-
-  // Fetch students function
+  // IMPROVED: Fetch students using proper query
   const fetchStudents = async (semester: string, department: string) => {
     try {
-      let studentsList: Student[] = [];
-      let debugMessages: string[] = [];
+      // Query students collection directly with filters
+      const studentsQuery = query(
+        collection(db, "students"),
+        where("department", "==", department),
+        where("semester", "==", semester),
+        where("requestStatus", "==", "approved")
+      );
       
-      debugMessages.push(`Searching for Sem: ${semester}, Dept: ${department}`);
+      const studentsSnap = await getDocs(studentsQuery);
       
-      const allStudentsRef = collection(db, "students");
-      const allStudentsSnap = await getDocs(allStudentsRef);
-      
-      debugMessages.push(`Total students in DB: ${allStudentsSnap.size}`);
-      
-      allStudentsSnap.docs.forEach(doc => {
+      const studentsList: Student[] = studentsSnap.docs.map(doc => {
         const data = doc.data();
-        const studentSemester = data.semester?.toString() || data.Semester?.toString() || "";
-        const studentDepartment = data.department?.toString() || data.Department?.toString() || data.dept?.toString() || "";
-        const targetSemester = semester.toString();
-        const targetDepartment = department.toString();
-        
-        if (studentSemester === targetSemester && studentDepartment === targetDepartment) {
-          studentsList.push({
-            id: doc.id,
-            name: data.name || data.Name || data.fullName || data.studentName || "Unknown",
-            rollNumber: data.rollNumber || data.rollNo || data.rollNum || "",
-            semester: studentSemester,
-            department: studentDepartment,
-            email: data.email || data.Email || "",
-            phone: data.phone || data.Phone || "",
-          } as Student);
-        }
+        return {
+          id: doc.id,
+          name: data.name || "Unknown",
+          rollNumber: data.boardRollNo || data.classRollNo || "",
+          semester: data.semester || semester,
+          department: data.department || department,
+          email: data.gmail || data.email || "",
+          phone: data.phoneNo || data.phone || "",
+          gmail: data.gmail || "",
+          boardRollNo: data.boardRollNo || "",
+          classRollNo: data.classRollNo || "",
+          phoneNo: data.phoneNo || "",
+          parentPhoneNo: data.parentPhoneNo || "",
+        } as Student;
       });
       
-      setDebugInfo(debugMessages.join("\n"));
       setStudents(studentsList);
       return studentsList;
       
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      console.error("Error fetching students:", errorMessage);
-      setDebugInfo(`Error: ${errorMessage}`);
-      return [];
+    } catch (err) {
+      console.error("Error fetching students:", err);
+      
+      // Fallback: If index not ready, fetch all and filter
+      try {
+        const allStudentsSnap = await getDocs(collection(db, "students"));
+        const studentsList: Student[] = [];
+        
+        allStudentsSnap.docs.forEach(doc => {
+          const data = doc.data();
+          if (
+            data.department === department && 
+            data.semester === semester &&
+            data.requestStatus === "approved"
+          ) {
+            studentsList.push({
+              id: doc.id,
+              name: data.name || "Unknown",
+              rollNumber: data.boardRollNo || "",
+              semester: data.semester || semester,
+              department: data.department || department,
+              email: data.gmail || "",
+              phone: data.phoneNo || "",
+            } as Student);
+          }
+        });
+        
+        setStudents(studentsList);
+        return studentsList;
+      } catch (fallbackErr) {
+        console.error("Fallback fetch error:", fallbackErr);
+        return [];
+      }
     }
   };
 
-  // Fetch class teacher data
+  // IMPROVED: Fetch pending student requests for CT's semester & department
+  const fetchPendingRequests = async (semester: string, department: string) => {
+    try {
+      const requestsQuery = query(
+        collection(db, "studentRequests"),
+        where("department", "==", department),
+        where("semester", "==", semester),
+        where("requestStatus", "==", "pending")
+      );
+      
+      const requestsSnap = await getDocs(requestsQuery);
+      const requestsList: StudentRequest[] = requestsSnap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      } as StudentRequest));
+      
+      setPendingRequests(requestsList);
+    } catch (err) {
+      console.error("Error fetching requests:", err);
+      
+      // Fallback: Fetch all and filter
+      try {
+        const allRequestsSnap = await getDocs(collection(db, "studentRequests"));
+        const requestsList: StudentRequest[] = [];
+        
+        allRequestsSnap.docs.forEach(doc => {
+          const data = doc.data();
+          if (
+            data.department === department && 
+            data.semester === semester &&
+            data.requestStatus === "pending"
+          ) {
+            requestsList.push({
+              id: doc.id,
+              ...data
+            } as StudentRequest);
+          }
+        });
+        
+        setPendingRequests(requestsList);
+      } catch (fallbackErr) {
+        console.error("Fallback fetch error:", fallbackErr);
+      }
+    }
+  };
+
   const fetchClassTeacherData = useCallback(async () => {
     if (!auth.currentUser?.uid) {
       setLoading(false);
@@ -258,8 +335,14 @@ export default function ClassTeacherDashboard() {
     }
 
     try {
-      await fetchTeacherDataDirect();
+      // Get teacher info
+      const teacherRef = doc(db, "teachers", auth.currentUser.uid);
+      const teacherSnap = await getDoc(teacherRef);
+      if (teacherSnap.exists()) {
+        setTeacherInfo(teacherSnap.data());
+      }
 
+      // Get class teacher assignment
       const classTeacherQuery = query(
         collection(db, "classTeachers"),
         where("teacherId", "==", auth.currentUser.uid)
@@ -267,20 +350,22 @@ export default function ClassTeacherDashboard() {
       const classTeacherSnap = await getDocs(classTeacherQuery);
       
       if (classTeacherSnap.empty) {
-        Alert.alert("Error", "No class assigned to you. Contact HOD.");
+        Alert.alert("Not Assigned", "You are not assigned as a Class Teacher. Contact HOD.");
         setLoading(false);
         return;
       }
       
       const classData = classTeacherSnap.docs[0].data();
+      const ctSemester = classData.semester;
+      const ctDepartment = classData.department;
       
       setClassTeacherInfo({
-        semester: classData.semester,
-        department: classData.department,
+        semester: ctSemester,
+        department: ctDepartment,
         assignedAt: classData.assignedAt,
       });
 
-      // Fetch assigned subject
+      // Get assigned subject
       const teacherSubjectQuery = query(
         collection(db, "teacherSubjects"),
         where("teacherId", "==", auth.currentUser.uid)
@@ -294,22 +379,14 @@ export default function ClassTeacherDashboard() {
         }
       }
 
-      await fetchStudents(classData.semester, classData.department);
+      // Fetch students and requests in parallel
+      await Promise.all([
+        fetchStudents(ctSemester, ctDepartment),
+        fetchPendingRequests(ctSemester, ctDepartment)
+      ]);
 
-      const requestsQuery = query(
-        collection(db, "studentRequests"),
-        where("status", "==", "pending")
-      );
-      const requestsSnap = await getDocs(requestsQuery);
-      const requestsList = requestsSnap.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      } as StudentRequest));
-      setPendingRequests(requestsList);
-
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      console.error("Error fetching class teacher data:", errorMessage);
+    } catch (err) {
+      console.error("Error fetching class teacher data:", err);
       Alert.alert("Error", "Failed to load dashboard data");
     } finally {
       setLoading(false);
@@ -317,20 +394,16 @@ export default function ClassTeacherDashboard() {
     }
   }, []);
 
-  // Set up real-time listener for teacher data
   useEffect(() => {
     if (!auth.currentUser?.uid) return;
-
     const teacherRef = doc(db, "teachers", auth.currentUser.uid);
-    
     const unsubscribe = onSnapshot(teacherRef, (docSnapshot) => {
       if (docSnapshot.exists()) {
         setTeacherInfo(docSnapshot.data());
       }
-    }, (error) => {
-      console.error("Snapshot listener error:", error);
+    }, (err) => {
+      console.error("Snapshot listener error:", err);
     });
-
     return () => unsubscribe();
   }, []);
 
@@ -341,7 +414,6 @@ export default function ClassTeacherDashboard() {
   useFocusEffect(
     useCallback(() => {
       fetchClassTeacherData();
-      return () => {};
     }, [fetchClassTeacherData])
   );
 
@@ -350,24 +422,50 @@ export default function ClassTeacherDashboard() {
     fetchClassTeacherData();
   };
 
+  // IMPROVED: Approve student - move from requests to students collection
   const approveRequest = async (request: StudentRequest) => {
     try {
-      await updateDoc(doc(db, "studentRequests", request.id), {
-        status: "approved",
-        approvedAt: new Date().toISOString(),
+      // Move student from studentRequests to students collection
+      const studentData = {
+        name: request.name,
+        gmail: request.gmail,
+        department: request.department,
+        semester: request.semester,
+        boardRollNo: request.boardRollNo,
+        classRollNo: request.classRollNo || "",
+        phoneNo: request.phoneNo || "",
+        parentPhoneNo: request.parentPhoneNo || "",
+        requestStatus: "approved",
         approvedBy: auth.currentUser?.uid,
+        approvedByClassTeacher: auth.currentUser?.uid,
+        approvedAt: new Date().toISOString(),
+        createdAt: request.createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+
+      // Add to students collection
+      await setDoc(doc(db, "students", request.id), studentData);
+
+      // Update request status
+      await updateDoc(doc(db, "studentRequests", request.id), {
+        requestStatus: "approved",
+        approvedBy: auth.currentUser?.uid,
+        approvedAt: new Date().toISOString(),
       });
-      Alert.alert("Approved", `Request from ${request.studentName} approved`);
+
+      Alert.alert("Approved", `${request.name} has been approved and added to students.`);
       fetchClassTeacherData();
-    } catch (error) {
-      Alert.alert("Error", "Failed to approve request");
+    } catch (err) {
+      console.error("Approve error:", err);
+      Alert.alert("Error", "Failed to approve student. Please try again.");
     }
   };
 
+  // IMPROVED: Reject student request
   const rejectRequest = async (request: StudentRequest) => {
     Alert.alert(
       "Reject Request",
-      `Reject request from ${request.studentName}?`,
+      `Are you sure you want to reject ${request.name}'s registration?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -376,13 +474,14 @@ export default function ClassTeacherDashboard() {
           onPress: async () => {
             try {
               await updateDoc(doc(db, "studentRequests", request.id), {
-                status: "rejected",
-                rejectedAt: new Date().toISOString(),
+                requestStatus: "rejected",
                 rejectedBy: auth.currentUser?.uid,
+                rejectedAt: new Date().toISOString(),
               });
-              Alert.alert("Rejected", "Request rejected");
+              Alert.alert("Rejected", `${request.name}'s registration has been rejected.`);
               fetchClassTeacherData();
-            } catch (error) {
+            } catch (err) {
+              console.error("Reject error:", err);
               Alert.alert("Error", "Failed to reject request");
             }
           },
@@ -399,222 +498,237 @@ export default function ClassTeacherDashboard() {
 
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+      <SafeAreaView style={[styles.center, { backgroundColor: colors.background }]}>
         <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={[styles.loadingText, { color: colors.textDark }]}>Loading dashboard...</Text>
-      </View>
+        <Text style={[styles.loading, { color: colors.textDark }]}>Loading dashboard...</Text>
+      </SafeAreaView>
     );
   }
 
+  // KEEP YOUR EXACT SAME RETURN JSX FROM HERE
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <Animated.View style={{ flex: 1, opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
-        <ScrollView
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Header */}
-          <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.header}>
-            <View style={styles.headerContent}>
-              <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                <Ionicons name="arrow-back" size={24} color="#fff" />
-              </TouchableOpacity>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.headerTitle}>Class Teacher</Text>
-                <Text style={styles.headerSubtitle}>{teacherInfo?.name || "Teacher"}</Text>
-              </View>
-              <View style={styles.headerActions}>
-                <TouchableOpacity onPress={handleThemeToggle} style={styles.iconButton}>
-                  <Animated.View style={{ transform: [{ rotate: themeSpin }] }}>
-                    <Ionicons name={theme === 'dark' ? "sunny-outline" : "moon-outline"} size={22} color="#fff" />
-                  </Animated.View>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={navigateToProfileSettings} style={styles.iconButton}>
-                  <Ionicons name="settings-outline" size={22} color="#fff" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={handleLogout} style={styles.iconButton}>
-                  <Ionicons name="log-out-outline" size={22} color="#fff" />
-                </TouchableOpacity>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={["top", "bottom"]}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
+          <Ionicons name="arrow-back" size={24} color={colors.primary} />
+        </TouchableOpacity>
+        <Text style={[styles.headerTitle, { color: colors.textDark }]}>Class Teacher</Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={toggleTheme} style={styles.headerButton}>
+            <Ionicons 
+              name={theme === "light" ? "moon-outline" : "sunny-outline"} 
+              size={22} 
+              color={colors.primary} 
+            />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={navigateToProfileSettings} style={styles.headerButton}>
+            <Ionicons name="settings-outline" size={22} color={colors.primary} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <Animated.ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: 40 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
+        style={{
+          opacity: fadeAnim,
+          transform: [{ translateY: slideAnim }],
+        }}
+      >
+        <View style={[styles.card, { backgroundColor: colors.card }]}>
+          <TouchableOpacity onPress={pickImage} disabled={uploadingPhoto} activeOpacity={0.8}>
+            <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
+              {teacherInfo?.profileImage ? (
+                <Image source={{ uri: teacherInfo.profileImage }} style={styles.avatarImage} />
+              ) : (
+                <Ionicons name="person" size={50} color="#fff" />
+              )}
+              <View style={styles.cameraIconContainer}>
+                <Ionicons name="camera" size={14} color="#fff" />
               </View>
             </View>
-          </LinearGradient>
-
-          {/* Teacher Profile Card */}
-          <View style={[styles.profileCard, { backgroundColor: colors.card, elevation: 2 }]}>
-            <View style={styles.profileHeader}>
-              <View style={[styles.avatarContainer, { backgroundColor: colors.primary }]}>
-                <Text style={styles.avatarText}>
-                  {teacherInfo?.name?.charAt(0) || "T"}
-                </Text>
-              </View>
-              <View style={styles.profileInfo}>
-                <Text style={[styles.profileName, { color: colors.textDark }]}>
-                  {teacherInfo?.name || "Teacher Name"}
-                </Text>
-                <Text style={[styles.profileEmail, { color: colors.textLight }]}>
-                  {teacherInfo?.email || auth.currentUser?.email}
-                </Text>
-                
-                <View style={styles.bioContainer}>
-                  <Ionicons name="chatbubble-outline" size={14} color={colors.primary} />
-                  <Text style={[styles.bioText, { color: colors.textDark }]}>
-                    {teacherInfo?.bio || "No bio added yet"}
-                  </Text>
-                </View>
-                
-                <View style={styles.roleBadge}>
-                  <Ionicons name="briefcase-outline" size={12} color={colors.primary} />
-                  <Text style={[styles.roleBadgeText, { color: colors.primary }]}>Class Teacher</Text>
-                </View>
-                
-                <View style={styles.detailBadge}>
-                  <Ionicons name="business-outline" size={12} color={colors.primary} />
-                  <Text style={[styles.detailText, { color: colors.textDark }]}>
-                    Department: {teacherInfo?.department || "Not set"}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {/* Statistics Card */}
-          <TouchableOpacity onPress={animateStatCard} activeOpacity={0.9}>
-            <Animated.View style={[styles.statsContainer, { transform: [{ scale: statsScaleAnim }] }]}>
-              <View style={[styles.statCard, { backgroundColor: colors.card }]}>
-                <View style={[styles.statIconBg, { backgroundColor: `${colors.primary}15` }]}>
-                  <Ionicons name="people-outline" size={28} color={colors.primary} />
-                </View>
-                <View>
-                  <Text style={[styles.statValue, { color: colors.textDark }]}>{totalStudents}</Text>
-                  <Text style={[styles.statLabel, { color: colors.textLight }]}>Total Students</Text>
-                </View>
-              </View>
-            </Animated.View>
           </TouchableOpacity>
 
-          {/* Class Information Card */}
-          <View style={[styles.infoCard, { backgroundColor: colors.card, elevation: 2 }]}>
-            <Text style={[styles.infoCardTitle, { color: colors.textDark }]}>Class Information</Text>
-            <View style={styles.infoRow}>
-              <Ionicons name="school-outline" size={20} color={colors.primary} />
-              <Text style={[styles.infoText, { color: colors.textDark }]}>Semester: {classTeacherInfo?.semester}</Text>
+          {uploadingPhoto && (
+            <View style={styles.uploadingContainer}>
+              <ActivityIndicator color={colors.primary} size="small" />
+              <Text style={[styles.uploadingText, { color: colors.textLight }]}>Uploading...</Text>
             </View>
+          )}
+
+          <Text style={[styles.name, { color: colors.textDark }]}>
+            {teacherInfo?.name || user?.name || "Teacher Name"}
+          </Text>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleBadgeText}>Class Teacher</Text>
+          </View>
+          
+          <View style={styles.infoRow}>
+            <Ionicons name="mail-outline" size={16} color={colors.textLight} />
+            <Text style={[styles.info, { color: colors.textLight }]}>
+              {teacherInfo?.gmail || teacherInfo?.email || auth.currentUser?.email || "N/A"}
+            </Text>
+          </View>
+          
+          <View style={styles.infoRow}>
+            <Ionicons name="business-outline" size={16} color={colors.textLight} />
+            <Text style={[styles.info, { color: colors.textLight }]}>
+              {classTeacherInfo?.department || user?.department || "N/A"}
+            </Text>
+          </View>
+          
+          <View style={styles.infoRow}>
+            <Ionicons name="book-outline" size={16} color={colors.textLight} />
+            <Text style={[styles.info, { color: colors.textLight }]}>
+              Semester: {classTeacherInfo?.semester || "N/A"}
+            </Text>
+          </View>
+          
+          {assignedSubject && (
             <View style={styles.infoRow}>
-              <Ionicons name="business-outline" size={20} color={colors.primary} />
-              <Text style={[styles.infoText, { color: colors.textDark }]}>Department: {classTeacherInfo?.department}</Text>
+              <Ionicons name="library-outline" size={16} color={colors.textLight} />
+              <Text style={[styles.info, { color: colors.textLight }]}>
+                Subject: {assignedSubject.name}
+              </Text>
             </View>
-            {assignedSubject && (
-              <View style={styles.infoRow}>
-                <Ionicons name="book-outline" size={20} color={colors.primary} />
-                <Text style={[styles.infoText, { color: colors.textDark }]}>Subject: {assignedSubject.name}</Text>
+          )}
+          
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: colors.primary }]}>{totalStudents}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Students</Text>
+            </View>
+            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: "#E91E63" }]}>{pendingRequests.length}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Requests</Text>
+            </View>
+            <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
+            <View style={styles.statItem}>
+              <Text style={[styles.statValue, { color: "#4CAF50" }]}>{assignedSubject ? 1 : 0}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Subjects</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.grid}>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: "#4CAF50" }]} onPress={navigateToAttendance}>
+            <Ionicons name="checkbox-outline" size={28} color="#fff" />
+            <Text style={styles.btnText}>Attendance</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.btn, { backgroundColor: "#9C27B0" }]} onPress={() => setShowRequestsModal(true)}>
+            <Ionicons name="notifications-outline" size={28} color="#fff" />
+            <Text style={styles.btnText}>Requests</Text>
+            {pendingRequests.length > 0 && (
+              <View style={styles.btnBadge}>
+                <Text style={styles.btnBadgeText}>{pendingRequests.length}</Text>
               </View>
             )}
-          </View>
+          </TouchableOpacity>
 
-          {/* View Students Button */}
-          <View style={styles.section}>
-            <TouchableOpacity 
-              style={styles.viewStudentsBtn}
-              onPress={() => setShowStudentsModal(true)}
-              activeOpacity={0.8}
-            >
-              <LinearGradient 
-                colors={[colors.primary, colors.secondary]} 
-                style={styles.viewStudentsGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-              >
-                <Ionicons name="people-circle-outline" size={24} color="#fff" />
-                <Text style={styles.viewStudentsText}>View All Students ({totalStudents})</Text>
-                <Ionicons name="chevron-forward-outline" size={20} color="#fff" />
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: "#FF9800" }]} onPress={navigateToNotes}>
+            <Ionicons name="document-text-outline" size={28} color="#fff" />
+            <Text style={styles.btnText}>Notes</Text>
+          </TouchableOpacity>
 
-          {/* Quick Actions - Compact Buttons */}
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Quick Actions</Text>
-            <View style={styles.actionGrid}>
-              <TouchableOpacity style={styles.actionCard} onPress={navigateToAttendance} activeOpacity={0.8}>
-                <LinearGradient colors={["#4CAF50", "#45a049"]} style={styles.actionGradient}>
-                  <Ionicons name="checkbox-outline" size={24} color="#fff" />
-                  <Text style={styles.actionText}>Attendance</Text>
-                </LinearGradient>
-              </TouchableOpacity>
+          <TouchableOpacity style={[styles.btn, { backgroundColor: "#2196F3" }]} onPress={() => setShowStudentsModal(true)}>
+            <Ionicons name="people-outline" size={28} color="#fff" />
+            <Text style={styles.btnText}>View Students</Text>
+          </TouchableOpacity>
+        </View>
 
-              <TouchableOpacity style={styles.actionCard} onPress={navigateToStudentRequests} activeOpacity={0.8}>
-                <LinearGradient colors={["#9C27B0", "#7B1FA2"]} style={styles.actionGradient}>
-                  <Ionicons name="notifications-outline" size={24} color="#fff" />
-                  <Text style={styles.actionText}>Requests</Text>
-                  {pendingRequests.length > 0 && (
-                    <View style={styles.badgeContainer}>
-                      <Text style={styles.badgeText}>{pendingRequests.length}</Text>
-                    </View>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
+        <TouchableOpacity style={[styles.logout, { backgroundColor: "#F44336" }]} onPress={handleLogout}>
+          <Ionicons name="log-out-outline" size={20} color="#fff" />
+          <Text style={styles.logoutText}>Logout</Text>
+        </TouchableOpacity>
+      </Animated.ScrollView>
 
-              <TouchableOpacity style={styles.actionCard} onPress={navigateToNotes} activeOpacity={0.8}>
-                <LinearGradient colors={["#FF9800", "#F57C00"]} style={styles.actionGradient}>
-                  <Ionicons name="document-text-outline" size={24} color="#fff" />
-                  <Text style={styles.actionText}>Notes</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </ScrollView>
-      </Animated.View>
-
-      {/* Student Requests Modal */}
+      {/* Student Requests Modal - Updated request display */}
       <Modal visible={showRequestsModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeaderGradient}>
-              <Text style={styles.modalTitle}>Student Requests</Text>
-              <TouchableOpacity onPress={() => setShowRequestsModal(false)}>
-                <Ionicons name="close" size={24} color="#fff" />
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.textDark }]}>Student Requests</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.textLight }]}>
+                  {classTeacherInfo?.semester} Semester • {classTeacherInfo?.department}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowRequestsModal(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
               </TouchableOpacity>
-            </LinearGradient>
+            </View>
+            
             <FlatList
               data={pendingRequests}
               keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.modalList}
               renderItem={({ item }) => (
-                <View style={[styles.requestItem, { borderBottomColor: colors.border }]}>
-                  <View style={styles.requestInfo}>
-                    <Text style={[styles.requestTitle, { color: colors.textDark }]}>{item.title}</Text>
-                    <Text style={[styles.requestMessage, { color: colors.textLight }]}>{item.message}</Text>
-                    <Text style={[styles.requestStudent, { color: colors.textLight }]}>From: {item.studentName}</Text>
+                <View style={[styles.requestItem, { backgroundColor: colors.background }]}>
+                  <View style={styles.requestHeader}>
+                    <Ionicons name="person-circle-outline" size={40} color={colors.primary} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={[styles.requestTitle, { color: colors.textDark }]}>
+                        {item.name}
+                      </Text>
+                      <Text style={[styles.requestStudent, { color: colors.textLight }]}>
+                        Roll: {item.boardRollNo} | Sem: {item.semester}
+                      </Text>
+                      <Text style={[styles.requestStudent, { color: colors.textLight }]}>
+                        {item.gmail} | {item.phoneNo || "No phone"}
+                      </Text>
+                    </View>
+                    <View style={[styles.statusBadge, { backgroundColor: '#FFF3E0' }]}>
+                      <Text style={{ color: '#E65100', fontSize: 11, fontWeight: '600' }}>Pending</Text>
+                    </View>
                   </View>
                   <View style={styles.requestActions}>
-                    <TouchableOpacity style={styles.approveBtn} onPress={() => approveRequest(item)}>
-                      <Text style={styles.approveText}>Approve</Text>
+                    <TouchableOpacity 
+                      style={[styles.actionBtn, { backgroundColor: "#4CAF50" }]} 
+                      onPress={() => approveRequest(item)}
+                    >
+                      <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                      <Text style={styles.actionBtnText}>Approve</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.rejectBtn} onPress={() => rejectRequest(item)}>
-                      <Text style={styles.rejectText}>Reject</Text>
+                    <TouchableOpacity 
+                      style={[styles.actionBtn, { backgroundColor: "#F44336" }]} 
+                      onPress={() => rejectRequest(item)}
+                    >
+                      <Ionicons name="close-circle" size={16} color="#fff" />
+                      <Text style={styles.actionBtnText}>Reject</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
               )}
-              ListEmptyComponent={<Text style={[styles.emptyText, { color: colors.textLight }]}>No pending requests</Text>}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Ionicons name="checkmark-circle-outline" size={48} color={colors.textLight} />
+                  <Text style={[styles.emptyText, { color: colors.textLight }]}>No pending requests for your class</Text>
+                </View>
+              }
             />
           </View>
         </View>
       </Modal>
 
-      {/* View All Students Modal */}
+      {/* View All Students Modal - KEEP EXACTLY AS IS */}
       <Modal visible={showStudentsModal} animationType="slide" transparent={true}>
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
-            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.modalHeaderGradient}>
-              <Text style={styles.modalTitle}>All Students ({totalStudents})</Text>
-              <TouchableOpacity onPress={() => setShowStudentsModal(false)}>
-                <Ionicons name="close" size={24} color="#fff" />
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.textDark }]}>All Students</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.textLight }]}>{totalStudents} students</Text>
+              </View>
+              <TouchableOpacity onPress={() => setShowStudentsModal(false)} style={styles.modalCloseBtn}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
               </TouchableOpacity>
-            </LinearGradient>
+            </View>
             
-            {/* Search Bar */}
-            <View style={[styles.searchContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
-              <Ionicons name="search-outline" size={20} color={colors.textLight} />
+            <View style={[styles.searchContainer, { backgroundColor: colors.background }]}>
+              <Ionicons name="search-outline" size={18} color={colors.textLight} />
               <TextInput
                 style={[styles.searchInput, { color: colors.textDark }]}
                 placeholder="Search by name or roll number..."
@@ -624,53 +738,49 @@ export default function ClassTeacherDashboard() {
               />
               {searchQuery !== "" && (
                 <TouchableOpacity onPress={() => setSearchQuery("")}>
-                  <Ionicons name="close-circle" size={20} color={colors.textLight} />
+                  <Ionicons name="close-circle" size={18} color={colors.textLight} />
                 </TouchableOpacity>
               )}
             </View>
             
             {totalStudents === 0 ? (
-              <View style={styles.emptyContainer}>
-                <Ionicons name="people-outline" size={64} color={colors.textLight} />
+              <View style={styles.emptyState}>
+                <Ionicons name="people-outline" size={48} color={colors.textLight} />
                 <Text style={[styles.emptyText, { color: colors.textDark }]}>No Students Found</Text>
                 <TouchableOpacity 
-                  style={[styles.refreshStudentsBtn, { backgroundColor: colors.primary }]}
+                  style={[styles.retryBtn, { backgroundColor: colors.primary }]}
                   onPress={fetchClassTeacherData}
                 >
-                  <Text style={styles.refreshStudentsText}>Refresh Data</Text>
+                  <Text style={{ color: "#fff", fontWeight: "600" }}>Refresh Data</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <FlatList
                 data={filteredStudents}
                 keyExtractor={(item) => item.id}
+                contentContainerStyle={styles.modalList}
                 renderItem={({ item, index }) => (
-                  <View style={[styles.studentModalItem, { borderBottomColor: colors.border }]}>
-                    <View style={[styles.studentNumberContainer, { backgroundColor: `${colors.primary}20` }]}>
-                      <Text style={[styles.studentNumber, { color: colors.primary }]}>{index + 1}</Text>
+                  <View style={[styles.studentItem, { backgroundColor: colors.background }]}>
+                    <View style={[styles.studentIndex, { backgroundColor: `${colors.primary}15` }]}>
+                      <Text style={[styles.studentIndexText, { color: colors.primary }]}>{index + 1}</Text>
                     </View>
-                    <View style={styles.studentModalInfo}>
-                      <Text style={[styles.studentModalName, { color: colors.textDark }]}>{item.name}</Text>
-                      <View style={styles.studentModalDetails}>
-                        <View style={styles.detailChip}>
-                          <Ionicons name="document-text-outline" size={12} color={colors.textLight} />
-                          <Text style={[styles.studentModalDetail, { color: colors.textLight }]}>
-                            Roll: {item.rollNumber || "N/A"}
-                          </Text>
-                        </View>
-                        <View style={styles.detailChip}>
-                          <Ionicons name="school-outline" size={12} color={colors.textLight} />
-                          <Text style={[styles.studentModalDetail, { color: colors.textLight }]}>
-                            Sem: {item.semester}
-                          </Text>
-                        </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.studentName, { color: colors.textDark }]}>{item.name}</Text>
+                      <View style={styles.studentDetails}>
+                        <Text style={[styles.detailText, { color: colors.textLight }]}>
+                          Roll: {item.rollNumber || "N/A"}
+                        </Text>
+                        <Text style={[styles.detailText, { color: colors.textLight }]}>
+                          Sem: {item.semester}
+                        </Text>
                       </View>
                     </View>
+                    <Ionicons name="chevron-forward" size={18} color={colors.textLight} />
                   </View>
                 )}
                 ListEmptyComponent={
-                  <View style={styles.emptyContainer}>
-                    <Ionicons name="search-outline" size={64} color={colors.textLight} />
+                  <View style={styles.emptyState}>
+                    <Ionicons name="search-outline" size={48} color={colors.textLight} />
                     <Text style={[styles.emptyText, { color: colors.textLight }]}>No matching students</Text>
                   </View>
                 }
@@ -683,108 +793,63 @@ export default function ClassTeacherDashboard() {
   );
 }
 
+// KEEP ALL YOUR EXACT SAME STYLES
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: 10 },
-  
-  header: { padding: 20, paddingTop: 40, borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
-  headerContent: { flexDirection: "row", alignItems: "center", gap: 15 },
-  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
-  headerActions: { flexDirection: "row", gap: 8 },
-  iconButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
-  headerTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
-  headerSubtitle: { fontSize: 12, color: "#fff", opacity: 0.9, marginTop: 2 },
-  
-  profileCard: { margin: 15, padding: 15, borderRadius: 16 },
-  profileHeader: { flexDirection: "row", alignItems: "flex-start", gap: 15 },
-  avatarContainer: { width: 55, height: 55, borderRadius: 28, justifyContent: "center", alignItems: "center" },
-  avatarText: { color: "#fff", fontSize: 22, fontWeight: "bold" },
-  profileInfo: { flex: 1 },
-  profileName: { fontSize: 18, fontWeight: "bold", marginBottom: 4 },
-  profileEmail: { fontSize: 12, marginBottom: 6 },
-  bioContainer: { 
-    flexDirection: "row", 
-    alignItems: "center", 
-    gap: 6, 
-    marginTop: 4,
-    marginBottom: 6,
-    padding: 6,
-    backgroundColor: "rgba(0,0,0,0.05)",
-    borderRadius: 8,
-  },
-  bioText: { fontSize: 12, flex: 1, lineHeight: 16 },
-  roleBadge: { flexDirection: "row", alignItems: "center", marginTop: 2, gap: 4 },
-  roleBadgeText: { fontSize: 10, fontWeight: "600" },
-  detailBadge: { flexDirection: "row", alignItems: "center", marginTop: 4, gap: 6 },
-  detailText: { fontSize: 12 },
-  
-  statsContainer: { paddingHorizontal: 15, marginBottom: 15 },
-  statCard: { flexDirection: "row", alignItems: "center", padding: 14, borderRadius: 16, gap: 12 },
-  statIconBg: { width: 48, height: 48, borderRadius: 24, justifyContent: "center", alignItems: "center" },
-  statValue: { fontSize: 22, fontWeight: "bold" },
+  container: { flex: 1, paddingHorizontal: 15 },
+  center: { flex: 1, justifyContent: "center", alignItems: "center", paddingHorizontal: 30 },
+  loading: { marginTop: 10, fontSize: 16 },
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 15, paddingHorizontal: 5 },
+  headerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(0,0,0,0.05)", justifyContent: "center", alignItems: "center" },
+  headerTitle: { fontSize: 18, fontWeight: "bold" },
+  headerRight: { flexDirection: "row", gap: 12 },
+  card: { padding: 20, borderRadius: 20, alignItems: "center", marginTop: 15, elevation: 2, shadowColor: "#000", shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 4 },
+  avatarContainer: { width: 110, height: 110, borderRadius: 55, justifyContent: "center", alignItems: "center", position: "relative", marginBottom: 5 },
+  avatarImage: { width: 110, height: 110, borderRadius: 55 },
+  cameraIconContainer: { position: "absolute", bottom: 0, right: 0, backgroundColor: "#4CAF50", borderRadius: 15, width: 32, height: 32, justifyContent: "center", alignItems: "center", borderWidth: 3, borderColor: "#fff" },
+  uploadingContainer: { flexDirection: "row", alignItems: "center", marginTop: 4, marginBottom: 4, gap: 8 },
+  uploadingText: { fontSize: 12 },
+  name: { fontSize: 20, fontWeight: "bold", marginTop: 8, marginBottom: 8 },
+  roleBadge: { backgroundColor: "#E3F2FD", paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12, marginBottom: 12 },
+  roleBadgeText: { color: "#1976D2", fontSize: 12, fontWeight: "600" },
+  infoRow: { flexDirection: "row", alignItems: "center", marginTop: 5, gap: 8, width: "100%", paddingHorizontal: 10 },
+  info: { fontSize: 14 },
+  statsRow: { flexDirection: "row", alignItems: "center", marginTop: 15, paddingTop: 12, borderTopWidth: 1, borderTopColor: "rgba(0,0,0,0.1)", width: "100%" },
+  statItem: { flex: 1, alignItems: "center" },
+  statValue: { fontSize: 18, fontWeight: "bold" },
   statLabel: { fontSize: 11, marginTop: 2 },
-  
-  infoCard: { marginHorizontal: 15, marginBottom: 15, padding: 15, borderRadius: 16 },
-  infoCardTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 10 },
-  infoRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
-  infoText: { fontSize: 14, fontWeight: "500" },
-  
-  section: { marginHorizontal: 15, marginBottom: 20 },
-  sectionTitle: { fontSize: 16, fontWeight: "600", marginBottom: 12 },
-  
-  viewStudentsBtn: { borderRadius: 14, overflow: "hidden", elevation: 2 },
-  viewStudentsGradient: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14 },
-  viewStudentsText: { fontSize: 16, fontWeight: "bold", color: "#fff", flex: 1, textAlign: "center" },
-  
-  actionGrid: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  actionCard: { flex: 1, borderRadius: 12, overflow: "hidden" },
-  actionGradient: { padding: 12, alignItems: "center", gap: 6, position: "relative" },
-  actionText: { color: "#fff", fontWeight: "bold", fontSize: 12 },
-  badgeContainer: { 
-    position: "absolute", 
-    top: 4, 
-    right: 4, 
-    backgroundColor: "#FF4444", 
-    borderRadius: 10, 
-    minWidth: 18, 
-    height: 18, 
-    justifyContent: "center", 
-    alignItems: "center", 
-    paddingHorizontal: 4 
-  },
-  badgeText: { color: "#fff", fontSize: 10, fontWeight: "bold" },
-  
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center" },
-  modalContent: { borderRadius: 24, width: "90%", maxHeight: "85%", overflow: "hidden" },
-  modalHeaderGradient: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20 },
-  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
-  
-  searchContainer: { flexDirection: "row", alignItems: "center", margin: 15, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, borderWidth: 1, gap: 8 },
-  searchInput: { flex: 1, fontSize: 14, paddingVertical: 6 },
-  
-  requestItem: { flexDirection: "row", justifyContent: "space-between", padding: 15, borderBottomWidth: 1 },
-  requestInfo: { flex: 1 },
-  requestTitle: { fontSize: 15, fontWeight: "bold", marginBottom: 4 },
-  requestMessage: { fontSize: 13, marginTop: 2 },
-  requestStudent: { fontSize: 11, marginTop: 4 },
-  requestActions: { flexDirection: "row", gap: 8, alignItems: "center" },
-  approveBtn: { backgroundColor: "#4CAF50", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
-  approveText: { color: "#fff", fontWeight: "bold", fontSize: 12 },
-  rejectBtn: { backgroundColor: "#F44336", paddingHorizontal: 14, paddingVertical: 6, borderRadius: 8 },
-  rejectText: { color: "#fff", fontWeight: "bold", fontSize: 12 },
-  
-  studentModalItem: { flexDirection: "row", padding: 15, borderBottomWidth: 1, alignItems: "flex-start" },
-  studentNumberContainer: { width: 32, height: 32, borderRadius: 16, justifyContent: "center", alignItems: "center", marginRight: 12, marginTop: 2 },
-  studentNumber: { fontSize: 14, fontWeight: "bold" },
-  studentModalInfo: { flex: 1 },
-  studentModalName: { fontSize: 15, fontWeight: "600", marginBottom: 4 },
-  studentModalDetails: { flexDirection: "row", gap: 12, marginBottom: 2, flexWrap: "wrap" },
-  detailChip: { flexDirection: "row", alignItems: "center", gap: 4 },
-  studentModalDetail: { fontSize: 11 },
-  
-  emptyContainer: { alignItems: "center", justifyContent: "center", paddingVertical: 50 },
-  emptyText: { textAlign: "center", padding: 20, fontSize: 16, marginTop: 10 },
-  refreshStudentsBtn: { marginTop: 16, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
-  refreshStudentsText: { color: "#fff", fontWeight: "bold" },
+  statDivider: { width: 1, height: 30 },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", marginTop: 20 },
+  btn: { width: "48%", padding: 20, borderRadius: 15, alignItems: "center", marginBottom: 15, elevation: 2, position: "relative" },
+  btnText: { color: "#fff", marginTop: 8, fontWeight: "600", fontSize: 14 },
+  btnBadge: { position: "absolute", top: 8, right: 8, backgroundColor: "#FF4444", borderRadius: 10, minWidth: 20, height: 20, justifyContent: "center", alignItems: "center", paddingHorizontal: 4, borderWidth: 2, borderColor: "#fff" },
+  btnBadgeText: { color: "#fff", fontSize: 10, fontWeight: "bold" },
+  logout: { flexDirection: "row", padding: 15, borderRadius: 25, alignItems: "center", justifyContent: "center", marginTop: 10, marginBottom: 20, gap: 8, elevation: 3 },
+  logoutText: { color: "#fff", fontWeight: "bold", fontSize: 16 },
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
+  modalContent: { borderTopLeftRadius: 25, borderTopRightRadius: 25, maxHeight: "80%", overflow: "hidden" },
+  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderBottomWidth: 1, borderBottomColor: "rgba(0,0,0,0.1)" },
+  modalTitle: { fontSize: 18, fontWeight: "bold" },
+  modalSubtitle: { fontSize: 12, marginTop: 2 },
+  modalCloseBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(0,0,0,0.05)", justifyContent: "center", alignItems: "center" },
+  modalList: { padding: 15, paddingBottom: 30 },
+  searchContainer: { flexDirection: "row", alignItems: "center", marginHorizontal: 15, marginVertical: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, gap: 8 },
+  searchInput: { flex: 1, fontSize: 14, paddingVertical: 2 },
+  requestItem: { borderRadius: 15, padding: 15, marginBottom: 10 },
+  requestHeader: { flexDirection: "row", alignItems: "center", marginBottom: 8 },
+  requestTitle: { fontSize: 15, fontWeight: "bold" },
+  requestStudent: { fontSize: 12, marginTop: 2 },
+  statusBadge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 },
+  requestMessage: { fontSize: 13, lineHeight: 18, marginBottom: 10, marginLeft: 52 },
+  requestActions: { flexDirection: "row", gap: 10, justifyContent: "flex-end" },
+  actionBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+  actionBtnText: { color: "#fff", fontWeight: "600", fontSize: 12 },
+  studentItem: { flexDirection: "row", alignItems: "center", padding: 15, borderRadius: 15, marginBottom: 8, gap: 12 },
+  studentIndex: { width: 36, height: 36, borderRadius: 18, justifyContent: "center", alignItems: "center" },
+  studentIndexText: { fontSize: 14, fontWeight: "bold" },
+  studentName: { fontSize: 15, fontWeight: "600", marginBottom: 2 },
+  studentDetails: { flexDirection: "row", gap: 16 },
+  detailText: { fontSize: 11 },
+  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: 40 },
+  emptyText: { textAlign: "center", fontSize: 16, marginTop: 10 },
+  retryBtn: { marginTop: 15, paddingHorizontal: 20, paddingVertical: 10, borderRadius: 8 },
 });

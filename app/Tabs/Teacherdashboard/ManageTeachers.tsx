@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { collection, deleteDoc, doc, getDocs, updateDoc, query, where } from "firebase/firestore";
+import { collection, deleteDoc, doc, getDocs, updateDoc, query, where, setDoc } from "firebase/firestore";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -20,20 +20,22 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../../config/firebaseConfig.native";
 import { useTheme } from "../../../context/ThemeContext";
+import { useAuth } from "../../../context/AuthContext";
 
 interface Teacher {
   id: string;
   name: string;
-  email: string;
+  gmail: string;
   department: string;
   role: string[];
-  phone?: string;
+  phoneNo?: string;
   subjects?: string;
   joinDate?: string;
   qualification?: string;
   address?: string;
   labIncharge?: string;
   classTeacherFor?: string;
+  requestStatus?: string;
 }
 
 interface TeacherSubject {
@@ -48,7 +50,6 @@ interface TeacherSubject {
   assignedAt: string;
 }
 
-// Helper function to normalize role to array
 const normalizeRole = (role: string | string[] | undefined): string[] => {
   if (!role) return [];
   if (Array.isArray(role)) return role;
@@ -56,27 +57,10 @@ const normalizeRole = (role: string | string[] | undefined): string[] => {
   return [];
 };
 
-const normalizeDepartment = (dept: string): string => {
-  if (!dept) return "";
-  const deptMap: { [key: string]: string } = {
-    'cse': 'CSE',
-    'computer science': 'CSE',
-    'cs': 'CSE',
-    'ece': 'ECE',
-    'electronics': 'ECE',
-    'mech': 'MECH',
-    'mechanical': 'MECH',
-    'civil': 'CIVIL',
-    'eee': 'EEE',
-    'it': 'IT',
-  };
-  const lowerDept = dept.toLowerCase().trim();
-  return deptMap[lowerDept] || dept.toUpperCase();
-};
-
 const ManageTeachers = () => {
   const router = useRouter();
   const { colors, theme, toggleTheme } = useTheme();
+  const { user } = useAuth();
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [filteredTeachers, setFilteredTeachers] = useState<Teacher[]>([]);
   const [subjectAssignments, setSubjectAssignments] = useState<TeacherSubject[]>([]);
@@ -102,12 +86,22 @@ const ManageTeachers = () => {
     { id: "lab_incharge", name: "Lab Incharge", icon: "flask-outline" as const },
   ];
 
-  const semesters = ["1", "2", "3", "4", "5", "6", "7", "8"];
+  const semesters = ["1", "2", "3", "4", "5", "6"];
 
-  // Fetch subject assignments for teachers
   const fetchSubjectAssignments = useCallback(async () => {
     try {
-      const q = query(collection(db, "teacherSubjects"));
+      const hodDepartment = user?.department;
+      let q;
+      
+      if (hodDepartment) {
+        q = query(
+          collection(db, "teacherSubjects"),
+          where("department", "==", hodDepartment)
+        );
+      } else {
+        q = query(collection(db, "teacherSubjects"));
+      }
+      
       const snapshot = await getDocs(q);
       const assignmentsList = snapshot.docs.map((doc) => ({
         id: doc.id,
@@ -116,20 +110,57 @@ const ManageTeachers = () => {
       setSubjectAssignments(assignmentsList);
     } catch (error) {
       console.error("Error fetching subject assignments:", error);
+      try {
+        const snapshot = await getDocs(collection(db, "teacherSubjects"));
+        const assignmentsList = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+        })) as TeacherSubject[];
+        
+        if (user?.department) {
+          setSubjectAssignments(
+            assignmentsList.filter(a => a.department === user.department)
+          );
+        } else {
+          setSubjectAssignments(assignmentsList);
+        }
+      } catch (fallbackErr) {
+        console.error("Fallback error:", fallbackErr);
+      }
     }
-  }, []);
+  }, [user]);
 
   const fetchTeachers = useCallback(async () => {
     setLoading(true);
     try {
-      const teachersSnap = await getDocs(collection(db, "teachers"));
+      const hodDepartment = user?.department;
+      let teachersSnap;
+      
+      if (hodDepartment) {
+        const teachersQuery = query(
+          collection(db, "teachers"),
+          where("department", "==", hodDepartment),
+          where("requestStatus", "==", "approved")
+        );
+        teachersSnap = await getDocs(teachersQuery);
+      } else {
+        teachersSnap = await getDocs(collection(db, "teachers"));
+      }
+      
       const teachersList = teachersSnap.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
-          ...data,
+          name: data.name || "",
+          gmail: data.gmail || data.email || "",
+          department: data.department || "",
           role: normalizeRole(data.role),
-          classTeacherFor: data.classTeacherFor || null
+          phoneNo: data.phoneNo || data.phone || "",
+          qualification: data.qualification || "",
+          address: data.address || "",
+          labIncharge: data.labIncharge || null,
+          classTeacherFor: data.classTeacherFor || null,
+          requestStatus: data.requestStatus || "approved",
         } as Teacher;
       });
       
@@ -137,12 +168,43 @@ const ManageTeachers = () => {
       applyFilters(teachersList, searchQuery, selectedRole);
     } catch (error) {
       console.error("Error fetching teachers:", error);
-      Alert.alert("Error", "Failed to load teachers");
+      
+      try {
+        const allSnap = await getDocs(collection(db, "teachers"));
+        const teachersList = allSnap.docs
+          .map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              name: data.name || "",
+              gmail: data.gmail || data.email || "",
+              department: data.department || "",
+              role: normalizeRole(data.role),
+              phoneNo: data.phoneNo || data.phone || "",
+              qualification: data.qualification || "",
+              labIncharge: data.labIncharge || null,
+              classTeacherFor: data.classTeacherFor || null,
+              requestStatus: data.requestStatus || "approved",
+            } as Teacher;
+          })
+          .filter(t => {
+            if (user?.department) {
+              return t.department === user.department && t.requestStatus === "approved";
+            }
+            return t.requestStatus === "approved";
+          });
+        
+        setTeachers(teachersList);
+        applyFilters(teachersList, searchQuery, selectedRole);
+      } catch (fallbackErr) {
+        console.error("Fallback error:", fallbackErr);
+        Alert.alert("Error", "Failed to load teachers");
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [searchQuery, selectedRole]);
+  }, [searchQuery, selectedRole, user]);
 
   useEffect(() => {
     fetchTeachers();
@@ -155,7 +217,7 @@ const ManageTeachers = () => {
     if (query) {
       filtered = filtered.filter(teacher =>
         teacher.name?.toLowerCase().includes(query.toLowerCase()) ||
-        teacher.email?.toLowerCase().includes(query.toLowerCase()) ||
+        teacher.gmail?.toLowerCase().includes(query.toLowerCase()) ||
         teacher.department?.toLowerCase().includes(query.toLowerCase())
       );
     }
@@ -180,13 +242,11 @@ const ManageTeachers = () => {
   const handleAssignRoles = async () => {
     if (!selectedTeacher) return;
 
-    // Validate Lab Incharge
     if (selectedRoles.includes("lab_incharge") && !selectedLab.trim()) {
       Alert.alert("Missing Info", "Please enter the lab name for Lab Incharge");
       return;
     }
     
-    // Validate Class Teacher
     if (selectedRoles.includes("class_teacher") && !selectedSemester) {
       Alert.alert("Missing Info", "Please select a semester for Class Teacher");
       return;
@@ -196,18 +256,16 @@ const ManageTeachers = () => {
       const teacherRef = doc(db, "teachers", selectedTeacher.id);
       
       const updateData: any = {
-        updatedAt: new Date().toISOString(),
         role: selectedRoles,
+        updatedAt: new Date().toISOString(),
       };
       
-      // Lab Incharge
       if (selectedRoles.includes("lab_incharge")) {
         updateData.labIncharge = selectedLab.trim();
       } else {
         updateData.labIncharge = null;
       }
       
-      // Class Teacher
       if (selectedRoles.includes("class_teacher")) {
         const existingClassTeacher = teachers.find(t => 
           t.classTeacherFor === selectedSemester && t.id !== selectedTeacher.id
@@ -216,14 +274,30 @@ const ManageTeachers = () => {
         if (existingClassTeacher) {
           Alert.alert(
             "Already Assigned",
-            `Semester ${selectedSemester} is already assigned to ${existingClassTeacher.name} as Class Teacher.`,
+            `Semester ${selectedSemester} is already assigned to ${existingClassTeacher.name}.`,
             [{ text: "OK" }]
           );
           return;
         }
+        
         updateData.classTeacherFor = selectedSemester;
+        
+        const classTeacherRef = doc(db, "classTeachers", selectedTeacher.id);
+        await setDoc(classTeacherRef, {
+          teacherId: selectedTeacher.id,
+          teacherName: selectedTeacher.name,
+          department: selectedTeacher.department,
+          semester: selectedSemester,
+          assignedBy: user?.uid,
+          assignedAt: new Date().toISOString(),
+        });
       } else {
         updateData.classTeacherFor = null;
+        try {
+          await deleteDoc(doc(db, "classTeachers", selectedTeacher.id));
+        } catch {
+          // Document might not exist
+        }
       }
       
       await updateDoc(teacherRef, updateData);
@@ -256,6 +330,11 @@ const ManageTeachers = () => {
             try {
               const teacherRef = doc(db, "teachers", teacher.id);
               await updateDoc(teacherRef, { classTeacherFor: null });
+              try {
+                await deleteDoc(doc(db, "classTeachers", teacher.id));
+              } catch  {
+                // Document might not exist
+              }
               Alert.alert("Success", `Removed from Semester ${teacher.classTeacherFor}`);
               fetchTeachers();
             } catch (error) {
@@ -321,10 +400,15 @@ const ManageTeachers = () => {
     if (!teacherToDelete) return;
 
     try {
-      // Also delete all subject assignments for this teacher
       const teacherSubjects = subjectAssignments.filter(s => s.teacherId === teacherToDelete.id);
       for (const subject of teacherSubjects) {
         await deleteDoc(doc(db, "teacherSubjects", subject.id));
+      }
+      
+      try {
+        await deleteDoc(doc(db, "classTeachers", teacherToDelete.id));
+      } catch {
+        // Document might not exist
       }
       
       await deleteDoc(doc(db, "teachers", teacherToDelete.id));
@@ -374,19 +458,14 @@ const ManageTeachers = () => {
   const toggleRole = (roleId: string) => {
     if (selectedRoles.includes(roleId)) {
       setSelectedRoles(selectedRoles.filter(r => r !== roleId));
-      if (roleId === "lab_incharge") {
-        setSelectedLab("");
-      }
-      if (roleId === "class_teacher") {
-        setSelectedSemester("");
-      }
+      if (roleId === "lab_incharge") setSelectedLab("");
+      if (roleId === "class_teacher") setSelectedSemester("");
     } else {
       setSelectedRoles([...selectedRoles, roleId]);
     }
   };
 
   const renderTeacherCard = ({ item }: { item: Teacher }) => {
-    const normalizedDept = normalizeDepartment(item.department);
     const teacherRoles = item.role || [];
     const teacherSubjects = getTeacherSubjects(item.id);
     const hasTeacherRole = teacherRoles.includes("teacher");
@@ -400,7 +479,7 @@ const ManageTeachers = () => {
             </View>
             <View style={styles.teacherDetails}>
               <Text style={[styles.teacherName, { color: colors.textDark }]}>{item.name}</Text>
-              <Text style={[styles.teacherEmail, { color: colors.textLight }]}>{item.email}</Text>
+              <Text style={[styles.teacherEmail, { color: colors.textLight }]}>{item.gmail}</Text>
               <View style={styles.badgeRow}>
                 {teacherRoles.map((roleId) => (
                   <View key={roleId} style={[styles.roleBadge, { backgroundColor: getRoleColor(roleId) + "20" }]}>
@@ -447,19 +526,17 @@ const ManageTeachers = () => {
         <View style={[styles.cardFooter, { borderTopColor: colors.border }]}>
           <View style={styles.footerItem}>
             <Ionicons name="business-outline" size={14} color={colors.textLight} />
-            <Text style={[styles.footerText, { color: colors.textLight }]}>{normalizedDept || "N/A"}</Text>
+            <Text style={[styles.footerText, { color: colors.textLight }]}>{item.department || "N/A"}</Text>
           </View>
-          {item.phone && (
+          {item.phoneNo && (
             <View style={styles.footerItem}>
               <Ionicons name="call-outline" size={14} color={colors.textLight} />
-              <Text style={[styles.footerText, { color: colors.textLight }]}>{item.phone}</Text>
+              <Text style={[styles.footerText, { color: colors.textLight }]}>{item.phoneNo}</Text>
             </View>
           )}
         </View>
         
-        {/* Assignment Details Section */}
         <View style={styles.assignmentSection}>
-          {/* Teacher Role - Shows assigned subjects with remove button */}
           {hasTeacherRole && teacherSubjects.length > 0 && (
             <View style={[styles.assignmentCard, { backgroundColor: colors.background }]}>
               <View style={[styles.assignmentIcon, { backgroundColor: "#4CAF50" + "20" }]}>
@@ -485,7 +562,6 @@ const ManageTeachers = () => {
             </View>
           )}
           
-          {/* Teacher Role - No subjects assigned */}
           {hasTeacherRole && teacherSubjects.length === 0 && (
             <View style={[styles.assignmentCard, { backgroundColor: colors.background }]}>
               <View style={[styles.assignmentIcon, { backgroundColor: "#4CAF50" + "20" }]}>
@@ -498,7 +574,6 @@ const ManageTeachers = () => {
             </View>
           )}
           
-          {/* Class Teacher Assignment with remove button */}
           {item.classTeacherFor && (
             <View style={[styles.assignmentCard, { backgroundColor: colors.background }]}>
               <View style={[styles.assignmentIcon, { backgroundColor: "#2196F3" + "20" }]}>
@@ -514,7 +589,6 @@ const ManageTeachers = () => {
             </View>
           )}
           
-          {/* Lab Incharge Assignment with remove button */}
           {item.labIncharge && (
             <View style={[styles.assignmentCard, { backgroundColor: colors.background }]}>
               <View style={[styles.assignmentIcon, { backgroundColor: "#9C27B0" + "20" }]}>
@@ -552,7 +626,9 @@ const ManageTeachers = () => {
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerTitle}>Manage Teachers</Text>
-            <Text style={styles.headerSubtitle}>View and manage teacher roles</Text>
+            <Text style={styles.headerSubtitle}>
+              {user?.department || "View and manage teacher roles"}
+            </Text>
           </View>
           <TouchableOpacity onPress={toggleTheme} style={styles.themeToggle}>
             <Ionicons name={theme === 'light' ? 'moon-outline' : 'sunny-outline'} size={24} color="#fff" />
@@ -564,12 +640,12 @@ const ManageTeachers = () => {
         style={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => {
+            setRefreshing(true);
             fetchTeachers();
             fetchSubjectAssignments();
           }} colors={[colors.primary]} />
         }
       >
-        {/* Search Bar */}
         <View style={[styles.searchContainer, { backgroundColor: colors.card, borderColor: colors.border }]}>
           <Ionicons name="search-outline" size={20} color={colors.textLight} style={styles.searchIcon} />
           <TextInput
@@ -586,7 +662,6 @@ const ManageTeachers = () => {
           )}
         </View>
 
-        {/* Role Filters */}
         <View style={styles.filtersSection}>
           <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Filter by Role</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
@@ -602,9 +677,7 @@ const ManageTeachers = () => {
                 styles.filterChipText,
                 { color: colors.textLight },
                 selectedRole === "All" && styles.activeFilterText
-              ]}>
-                All
-              </Text>
+              ]}>All</Text>
             </TouchableOpacity>
             {roles.map((role) => (
               <TouchableOpacity
@@ -621,15 +694,12 @@ const ManageTeachers = () => {
                   styles.filterChipText,
                   { color: colors.textLight },
                   selectedRole === role.id && styles.activeFilterText
-                ]}>
-                  {role.name}
-                </Text>
+                ]}>{role.name}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
 
-        {/* Teachers List */}
         {filteredTeachers.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="people-outline" size={64} color={colors.textLight} />
@@ -647,7 +717,7 @@ const ManageTeachers = () => {
         )}
       </ScrollView>
 
-      {/* Assign Roles Modal - Same as before */}
+      {/* Assign Roles Modal */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -691,14 +761,13 @@ const ManageTeachers = () => {
                 ))}
               </View>
               
-              {/* Lab Incharge - ONLY shows Lab Name input */}
               {selectedRoles.includes("lab_incharge") && (
                 <View style={styles.specificField}>
                   <Text style={[styles.fieldLabel, { color: colors.textDark }]}>
                     Lab Name <Text style={{ color: "#F44336" }}>*</Text>
                   </Text>
                   <Text style={[styles.fieldHint, { color: colors.textLight }]}>
-                    Enter the lab name ({' e.g., "Computer Lab 1", "Physics Lab"'})
+                    {'Enter the lab name (e.g., "Computer Lab 1", "Physics Lab")'}
                   </Text>
                   <TextInput
                     style={[styles.labInput, { 
@@ -714,7 +783,6 @@ const ManageTeachers = () => {
                 </View>
               )}
               
-              {/* Class Teacher - ONLY shows Semester selection */}
               {selectedRoles.includes("class_teacher") && (
                 <View style={styles.specificField}>
                   <Text style={[styles.fieldLabel, { color: colors.textDark }]}>
@@ -782,7 +850,7 @@ const ManageTeachers = () => {
         </View>
       </Modal>
 
-      {/* View Teacher Modal - Same as before */}
+      {/* View Teacher Modal */}
       <Modal
         animationType="slide"
         transparent={true}
@@ -825,7 +893,7 @@ const ManageTeachers = () => {
                     <Ionicons name="mail-outline" size={20} color={colors.primary} />
                     <View>
                       <Text style={[styles.infoLabel, { color: colors.textLight }]}>Email</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{viewingTeacher.email}</Text>
+                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{viewingTeacher.gmail}</Text>
                     </View>
                   </View>
                   
@@ -833,21 +901,30 @@ const ManageTeachers = () => {
                     <Ionicons name="business-outline" size={20} color={colors.primary} />
                     <View>
                       <Text style={[styles.infoLabel, { color: colors.textLight }]}>Department</Text>
-                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{normalizeDepartment(viewingTeacher.department) || "N/A"}</Text>
+                      <Text style={[styles.infoValue, { color: colors.textDark }]}>{viewingTeacher.department || "N/A"}</Text>
                     </View>
                   </View>
                   
-                  {viewingTeacher.phone && (
+                  {viewingTeacher.phoneNo && (
                     <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
                       <Ionicons name="call-outline" size={20} color={colors.primary} />
                       <View>
                         <Text style={[styles.infoLabel, { color: colors.textLight }]}>Phone</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{viewingTeacher.phone}</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{viewingTeacher.phoneNo}</Text>
                       </View>
                     </View>
                   )}
                   
-                  {/* Teacher Subjects */}
+                  {viewingTeacher.qualification && (
+                    <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
+                      <Ionicons name="school-outline" size={20} color={colors.primary} />
+                      <View>
+                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Qualification</Text>
+                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{viewingTeacher.qualification}</Text>
+                      </View>
+                    </View>
+                  )}
+                  
                   {viewingTeacher.role?.includes("teacher") && (
                     <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
                       <Ionicons name="book-outline" size={20} color={colors.primary} />
@@ -887,16 +964,6 @@ const ManageTeachers = () => {
                         <Text style={[styles.infoValue, { color: colors.textDark }]}>
                           Semester {viewingTeacher.classTeacherFor}
                         </Text>
-                      </View>
-                    </View>
-                  )}
-                  
-                  {viewingTeacher.qualification && (
-                    <View style={[styles.infoItem, { borderBottomColor: colors.border }]}>
-                      <Ionicons name="school-outline" size={20} color={colors.primary} />
-                      <View>
-                        <Text style={[styles.infoLabel, { color: colors.textLight }]}>Qualification</Text>
-                        <Text style={[styles.infoValue, { color: colors.textDark }]}>{viewingTeacher.qualification}</Text>
                       </View>
                     </View>
                   )}
@@ -1066,7 +1133,7 @@ const styles = StyleSheet.create({
   confirmText: { fontSize: 14, textAlign: "center", marginTop: 12, marginBottom: 24 },
   confirmButtons: { flexDirection: "row", gap: 12, width: "100%" },
   confirmButton: { flex: 1, paddingVertical: 12, borderRadius: 12, alignItems: "center" },
-  cancelButton: {},
+  cancelButton: { backgroundColor: "#f5f5f5" },
   cancelButtonText: { fontWeight: "600" },
   deleteConfirmButton: { backgroundColor: "#F44336" },
   deleteConfirmText: { color: "#fff", fontWeight: "600" },

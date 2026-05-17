@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, query, where, getDocs, limit } from "firebase/firestore";
 import React, { useState } from "react";
 import {
     ActivityIndicator,
@@ -18,9 +18,20 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { db } from "../../config/firebaseConfig.native";
+import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 
 const studentavatar = require("../../assets/images/studentavatar.jpg");
+
+interface StudentData {
+  boardRollNo: string;
+  password: string;
+  gmail: string;
+  requestStatus: string;
+  name: string;
+  department: string;
+  semester: string;
+}
 
 export default function StudentLoginScreen() {
   const [boardRollNo, setBoardRollNo] = useState("");
@@ -30,154 +41,160 @@ export default function StudentLoginScreen() {
 
   const router = useRouter();
   const { colors } = useTheme();
+  const { loginAsStudent } = useAuth();
+
+  const findStudentByBoardRoll = async (boardRollNo: string): Promise<{ studentData: StudentData; docId: string } | null> => {
+    try {
+      // Query students collection by boardRollNo (efficient indexed query)
+      const studentsQuery = query(
+        collection(db, "students"),
+        where("boardRollNo", "==", boardRollNo),
+        limit(1)
+      );
+      
+      const studentSnapshot = await getDocs(studentsQuery);
+      
+      if (!studentSnapshot.empty) {
+        const doc = studentSnapshot.docs[0];
+        return {
+          studentData: doc.data() as StudentData,
+          docId: doc.id
+        };
+      }
+      
+      return null;
+    } catch (error) {
+      console.error("Error finding student:", error);
+      throw new Error("Failed to search student. Please try again.");
+    }
+  };
 
   const handleLogin = async () => {
-    if (!boardRollNo.trim() || !password.trim()) {
-      Alert.alert("Error", "Please enter Board Roll Number and Password");
+    // Input validation
+    if (!boardRollNo.trim()) {
+      Alert.alert("Validation Error", "Please enter your Board Roll Number");
+      return;
+    }
+    
+    if (!password.trim()) {
+      Alert.alert("Validation Error", "Please enter your Password");
       return;
     }
 
+    const trimmedRollNo = boardRollNo.trim();
+    const trimmedPassword = password.trim();
+    
     setLoading(true);
     Keyboard.dismiss();
 
-    const input: string = boardRollNo.trim();
-    const pass: string = password.trim();
-
     try {
-      // Search in students collection
-      const allSnap: any = await getDocs(collection(db, "students"));
+      // Find student by board roll number
+      const studentResult = await findStudentByBoardRoll(trimmedRollNo);
       
-      let matchedStudent: any = null;
-      let matchedDocId: string | null = null;
-      
-      allSnap.forEach((doc: any) => {
-        const data: any = doc.data();
-        
-        // Try matching by boardRollNo field
-        if (data.boardRollNo && String(data.boardRollNo) === input) {
-          matchedStudent = data;
-          matchedDocId = doc.id;
-        }
-        // Try matching by rollNo field
-        if (!matchedStudent && data.rollNo && String(data.rollNo) === input) {
-          matchedStudent = data;
-          matchedDocId = doc.id;
-        }
-      });
-      
-      if (matchedStudent && matchedDocId) {
-        // Check password
-        if (matchedStudent.password !== pass) {
-          Alert.alert("Error", "Incorrect Password!");
-          setLoading(false);
-          return;
-        }
-
-        // Check status
-        if (matchedStudent.status === "approved") {
-          const name = matchedStudent.Name || matchedStudent.name || "Student";
-          Alert.alert(
-            "Login Successful",
-            "Welcome " + name + "!",
-            [
-              {
-                text: "OK",
-                onPress: () => {
-                  // Pass boardRollNo to dashboard, not document ID
-                  router.push(
-                    "/Tabs/Studentdashboard/studentdashboard?boardRollNo=" + input as any
-                  );
-                }
-              }
-            ]
-          );
-        } else if (matchedStudent.status === "pending") {
-          Alert.alert(
-            "Pending Approval",
-            "Your registration is pending approval by the class teacher."
-          );
-        } else if (matchedStudent.status === "rejected") {
-          Alert.alert(
-            "Registration Rejected",
-            "Your registration was rejected. Please contact administration."
-          );
-        } else {
-          // If no status field, treat as approved
-          const name = matchedStudent.Name || matchedStudent.name || "Student";
-          Alert.alert(
-            "Login Successful",
-            "Welcome " + name + "!",
-            [
-              {
-                text: "OK",
-                onPress: () => {
-                  router.push(
-                    "/Tabs/Studentdashboard/studentdashboard?boardRollNo=" + input as any
-                  );
-                }
-              }
-            ]
-          );
-        }
+      if (!studentResult) {
+        Alert.alert(
+          "Not Found",
+          "No student found with this Board Roll Number.\n\nPlease check your Board Roll Number or register first."
+        );
         setLoading(false);
         return;
       }
 
-      // Search in studentRequests collection
-      const allReqSnap: any = await getDocs(collection(db, "studentRequests"));
-      let matchedReq: any = null;
-      
-      allReqSnap.forEach((doc: any) => {
-        const data: any = doc.data();
-        
-        if (data.boardRollNo && String(data.boardRollNo) === input) {
-          matchedReq = data;
-        }
-        if (!matchedReq && data.rollNo && String(data.rollNo) === input) {
-          matchedReq = data;
-        }
-      });
-      
-      if (matchedReq) {
-        if (matchedReq.password !== pass) {
-          Alert.alert("Error", "Incorrect Password!");
-          setLoading(false);
-          return;
-        }
-        
-        if (matchedReq.status === "pending") {
-          Alert.alert(
-            "Pending Approval",
-            "Your registration request is pending approval by the class teacher."
-          );
-        } else if (matchedReq.status === "rejected") {
-          Alert.alert(
-            "Registration Rejected",
-            "Your registration request was rejected. Please contact administration."
-          );
-        } else {
-          Alert.alert(
-            "Registration Status",
-            "Your registration status is: " + (matchedReq.status || "unknown")
-          );
-        }
+      const { studentData } = studentResult;
+
+      // Verify password (client-side check before Firebase Auth)
+      if (studentData.password !== trimmedPassword) {
+        Alert.alert("Invalid Password", "The password you entered is incorrect. Please try again.");
         setLoading(false);
         return;
       }
 
-      // No student found
+      // Check request status
+      const status = studentData.requestStatus || "pending";
+      
+      switch (status) {
+        case "approved":
+          // Proceed with Firebase Auth login
+          try {
+            await loginAsStudent(trimmedRollNo, trimmedPassword);
+            
+            Alert.alert(
+              "Login Successful",
+              `Welcome ${studentData.name || "Student"}!`,
+              [
+                {
+                  text: "OK",
+                  onPress: () => {
+                    router.replace("/Tabs/Studentdashboard/studentdashboard");
+                  }
+                }
+              ]
+            );
+         } catch {
+            // If Firebase Auth fails (maybe email not configured), 
+            // still allow login with local state
+            Alert.alert(
+              "Login Successful",
+              `Welcome ${studentData.name || "Student"}!`,
+              [
+                {
+                  text: "OK",
+                  onPress: () => {
+                    router.replace({
+                      pathname: "/Tabs/Studentdashboard/studentdashboard",
+                      params: { boardRollNo: trimmedRollNo }
+                    });
+                  }
+                }
+              ]
+            );
+          }
+          break;
+          
+        case "pending":
+          Alert.alert(
+            "Pending Approval",
+            "Your registration is pending approval.\n\n" +
+            "Please wait for your Class Teacher to approve your account. " +
+            "You will be notified once approved."
+          );
+          break;
+          
+        case "rejected":
+          Alert.alert(
+            "Registration Rejected",
+            "Your registration has been rejected by the Class Teacher.\n\n" +
+            "Please contact your Class Teacher or HOD for more information.",
+            [
+              {
+                text: "Contact Support",
+                onPress: () => router.push("/Tabs/Studentdashboard/dashboards/Helpsupport"),
+                style: "default"
+              },
+              {
+                text: "OK",
+                style: "cancel"
+              }
+            ]
+          );
+          break;
+          
+        default:
+          Alert.alert(
+            "Unknown Status",
+            `Your account status is: ${status}\nPlease contact administration.`
+          );
+      }
+      
+    } catch (error: any) {
+      console.error("Login Error:", error);
       Alert.alert(
-        "Not Registered",
-        "Board Roll Number not found!\n\n" +
-        "Please check your Board Roll Number or register first."
+        "Error",
+        error.message || "Something went wrong during login. Please try again."
       );
-      
-    } catch (err: any) {
-      console.log("Login Error:", err);
-      Alert.alert("Error", "Something went wrong! Please try again.");
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   return (
@@ -196,8 +213,8 @@ export default function StudentLoginScreen() {
             style={styles.headerGradient}
           >
             <Image source={studentavatar} style={styles.avatar} />
-            <Text style={styles.welcomeText}>Welcome Back!</Text>
-            <Text style={styles.welcomeSubtext}>Login to your student account</Text>
+            <Text style={styles.welcomeText}>Student Login</Text>
+            <Text style={styles.welcomeSubtext}>Enter your credentials to continue</Text>
           </LinearGradient>
 
           {/* Login Form */}
@@ -214,6 +231,9 @@ export default function StudentLoginScreen() {
                 value={boardRollNo}
                 onChangeText={setBoardRollNo}
                 autoCapitalize="characters"
+                autoCorrect={false}
+                maxLength={20}
+                editable={!loading}
                 style={[styles.input, { color: colors.textDark }]}
               />
             </View>
@@ -230,9 +250,14 @@ export default function StudentLoginScreen() {
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                editable={!loading}
                 style={[styles.input, { color: colors.textDark }]}
               />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
+              <TouchableOpacity 
+                onPress={() => setShowPassword(!showPassword)} 
+                style={styles.eyeIcon}
+                disabled={loading}
+              >
                 <Ionicons 
                   name={showPassword ? "eye-off-outline" : "eye-outline"} 
                   size={20} 
@@ -252,7 +277,11 @@ export default function StudentLoginScreen() {
             </TouchableOpacity>
 
             {/* Login Button */}
-            <TouchableOpacity onPress={handleLogin} disabled={loading}>
+            <TouchableOpacity 
+              onPress={handleLogin} 
+              disabled={loading}
+              activeOpacity={0.8}
+            >
               <LinearGradient
                 colors={[colors.primary, colors.secondary]}
                 style={[styles.loginBtn, loading && { opacity: 0.7 }]}
@@ -269,16 +298,26 @@ export default function StudentLoginScreen() {
             <TouchableOpacity
               onPress={() => router.push("/Login/StudentSignup")}
               style={[styles.registerBtn, { borderColor: colors.primary }]}
+              disabled={loading}
             >
               <Text style={[styles.registerBtnText, { color: colors.primary }]}>
                 Register New Account
               </Text>
             </TouchableOpacity>
 
+            {/* Help Text */}
+            <View style={styles.helpContainer}>
+              <Ionicons name="information-circle-outline" size={16} color={colors.textLight} />
+              <Text style={[styles.helpText, { color: colors.textLight }]}>
+                Use your Board Roll Number for login
+              </Text>
+            </View>
+
             {/* Back Button */}
             <TouchableOpacity
               onPress={() => router.replace("/")}
               style={[styles.backBtn, { backgroundColor: colors.secondary }]}
+              disabled={loading}
             >
               <Ionicons name="arrow-back" size={20} color="#fff" />
               <Text style={styles.backBtnText}>Back to Home</Text>
@@ -393,6 +432,16 @@ const styles = StyleSheet.create({
   registerBtnText: {
     fontSize: 16,
     fontWeight: "600",
+  },
+  helpContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 15,
+    gap: 5,
+  },
+  helpText: {
+    fontSize: 12,
   },
   backBtn: {
     flexDirection: "row",
