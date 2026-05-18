@@ -17,6 +17,7 @@ export default function TabsLayout() {
         headerShown: false,
       }}
     >
+      {/* ✅ Teacher Dashboard - FIRST TAB */}
       <Tabs.Screen
         name="Teacherdashboard/Teacherdashboard"
         options={{
@@ -26,15 +27,30 @@ export default function TabsLayout() {
           ),
         }}
       />
+      
+      {/* ✅ HOD Dashboard */}
       <Tabs.Screen
-        name="Studentdashboard/studentdashboard"
+        name="Teacherdashboard/HODdashboard"
         options={{
-          title: "Student",
+          title: "HOD",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="people-outline" size={size} color={color} />
+            <Ionicons name="shield-checkmark-outline" size={size} color={color} />
           ),
         }}
       />
+      
+      {/* ✅ Class Teacher Dashboard */}
+      <Tabs.Screen
+        name="Teacherdashboard/ClassTeacherDashboard"
+        options={{
+          title: "Class",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="briefcase-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      
+      {/* ✅ Manage Teachers */}
       <Tabs.Screen
         name="Teacherdashboard/ManageTeachers"
         options={{
@@ -44,6 +60,8 @@ export default function TabsLayout() {
           ),
         }}
       />
+      
+      {/* ✅ Students */}
       <Tabs.Screen
         name="Teacherdashboard/Students"
         options={{
@@ -53,6 +71,8 @@ export default function TabsLayout() {
           ),
         }}
       />
+      
+      {/* ✅ Profile Settings */}
       <Tabs.Screen
         name="ProfileSettings"
         options={{

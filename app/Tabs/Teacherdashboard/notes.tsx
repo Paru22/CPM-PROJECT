@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import { collection, addDoc, getDocs, query, where, orderBy, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, getDocs, query, where, deleteDoc, doc, serverTimestamp } from "firebase/firestore";
 import React, { useCallback, useEffect, useState } from "react";
 import {
     ActivityIndicator,
@@ -84,18 +84,17 @@ export default function TeacherUploadNotesPage() {
     }
   }, [user, selectedSubject]);
 
-  // Fetch notes by department (teacher sees all notes in their department)
+  // UPDATED: Fetch notes WITHOUT orderBy (client-side sorting)
   const fetchNotes = useCallback(async () => {
     if (!user?.department) return;
     
     try {
       setLoadingNotes(true);
       
-      // Teachers see all notes in their department
+      // Remove orderBy from query - just filter by department
       const notesQuery = query(
         collection(db, "notes"),
-        where("department", "==", user.department),
-        orderBy("createdAt", "desc")
+        where("department", "==", user.department)
       );
       
       const snapshot = await getDocs(notesQuery);
@@ -104,33 +103,38 @@ export default function TeacherUploadNotesPage() {
         ...doc.data()
       } as Note));
       
-      setNotes(notesList);
+      // Sort manually on client side (no index needed!)
+      const sortedNotes = [...notesList].sort((a, b) => {
+        // Helper function to extract timestamp
+        const getTimestamp = (date: any): number => {
+          if (!date) return 0;
+          if (date.toDate) {
+            return date.toDate().getTime();
+          }
+          if (date instanceof Date) {
+            return date.getTime();
+          }
+          if (typeof date === 'string') {
+            return new Date(date).getTime();
+          }
+          if (typeof date === 'number') {
+            return date;
+          }
+          return 0;
+        };
+        
+        const timeA = getTimestamp(a.createdAt);
+        const timeB = getTimestamp(b.createdAt);
+        
+        // Descending order (newest first)
+        return timeB - timeA;
+      });
+      
+      setNotes(sortedNotes);
     } catch (error) {
       console.error("Error fetching notes:", error);
-      
-      // Fallback without orderBy
-      try {
-        const notesQuery = query(
-          collection(db, "notes"),
-          where("department", "==", user.department)
-        );
-        const snapshot = await getDocs(notesQuery);
-        const notesList: Note[] = snapshot.docs.map(doc => ({
-          id: doc.id,
-          ...doc.data()
-        } as Note));
-        
-        // Sort manually
-        notesList.sort((a, b) => {
-          const dateA = a.createdAt?.toDate?.() || new Date(a.createdAt);
-          const dateB = b.createdAt?.toDate?.() || new Date(b.createdAt);
-          return dateB.getTime() - dateA.getTime();
-        });
-        
-        setNotes(notesList);
-      } catch (fallbackErr) {
-        console.error("Fallback error:", fallbackErr);
-      }
+      Alert.alert("Error", "Failed to load notes");
+      setNotes([]);
     } finally {
       setLoadingNotes(false);
     }
@@ -177,7 +181,6 @@ export default function TeacherUploadNotesPage() {
     setUploading(true);
 
     try {
-      // Simple note structure - no uploadedBy needed
       const noteData = {
         title: title.trim(),
         link: link.trim(),
@@ -192,7 +195,7 @@ export default function TeacherUploadNotesPage() {
       Alert.alert("Success", "Note uploaded successfully!");
       setTitle("");
       setLink("");
-      fetchNotes();
+      fetchNotes(); // Refresh the list
     } catch (error) {
       console.error("Upload error:", error);
       Alert.alert("Error", "Failed to upload note. Please try again.");

@@ -38,27 +38,26 @@ export default function TeacherLogin() {
     ]).start();
   }, []);
 
-  // Redirect based on role after login
+  // Role-based redirect after login
   useEffect(() => {
     if (user) {
       const dashboardPath = getDashboardPath(user);
-      router.replace(dashboardPath);
+      router.replace(dashboardPath as any);
     }
   }, [user]);
 
   const getDashboardPath = (userData: any): string => {
-    // HOD - Head of Department
+    // HOD
     if (userData.role === "hod") {
       return "/Tabs/Teacherdashboard/HODdashboard";
     }
     
-    // Class Teacher - has classTeacherFor or class_teacher role
-    if (userData.teacherRoles?.some((r: any) => r.type === "class_teacher") || 
-        userData.classTeacherFor) {
+    // Class Teacher
+    if (userData.teacherRoles?.some((r: any) => r.type === "class_teacher")) {
       return "/Tabs/Teacherdashboard/ClassTeacherDashboard";
     }
     
-    // Regular Teacher
+    // Regular Subject Teacher
     return "/Tabs/Teacherdashboard/Teacherdashboard";
   };
 
@@ -72,10 +71,20 @@ export default function TeacherLogin() {
     
     try {
       await login(email.trim(), password.trim());
-      // No need for Alert + manual redirect - the useEffect above handles it
     } catch (error: any) {
       console.error("Login Error:", error);
-      Alert.alert("Login Failed", error.message || "An error occurred");
+      
+      let message = error.message || "An error occurred";
+      
+      if (message.includes("deactivated")) {
+        Alert.alert("Account Deactivated", "Your account has been deactivated. Please contact HOD.");
+      } else if (message.includes("pending")) {
+        Alert.alert("Pending Approval", "Your account is pending approval. Please wait for HOD to approve.");
+      } else if (message.includes("rejected")) {
+        Alert.alert("Rejected", "Your account has been rejected. Please contact HOD.");
+      } else {
+        Alert.alert("Login Failed", message);
+      }
     } finally {
       setLoading(false);
     }
@@ -93,7 +102,6 @@ export default function TeacherLogin() {
       <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
         <Animated.View style={[styles.contentContainer, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           
-          {/* Logo Section */}
           <View style={styles.logoSection}>
             <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.logoGradient}>
               <Ionicons name="school-outline" size={50} color="#fff" />
@@ -102,9 +110,7 @@ export default function TeacherLogin() {
             <Text style={[styles.appTagline, { color: colors.textLight }]}>Sign in to access your dashboard</Text>
           </View>
 
-          {/* Login Form */}
           <View style={[styles.formSection, { backgroundColor: colors.card }]}>
-            {/* Email Input */}
             <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
               <Ionicons name="mail-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
@@ -119,7 +125,6 @@ export default function TeacherLogin() {
               />
             </View>
 
-            {/* Password Input */}
             <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
               <Ionicons name="lock-closed-outline" size={20} color={colors.primary} style={styles.inputIcon} />
               <TextInput
@@ -136,7 +141,6 @@ export default function TeacherLogin() {
               </TouchableOpacity>
             </View>
 
-            {/* Forgot Password */}
             <TouchableOpacity 
               onPress={() => router.push("/Login/forgotPassword")} 
               style={styles.forgotPasswordContainer}
@@ -144,7 +148,6 @@ export default function TeacherLogin() {
               <Text style={[styles.forgotPasswordText, { color: colors.primary }]}>Forgot Password?</Text>
             </TouchableOpacity>
 
-            {/* Login Button */}
             <TouchableOpacity
               style={[styles.loginButton, loading && styles.loginButtonDisabled]}
               onPress={handleLogin}
@@ -163,14 +166,12 @@ export default function TeacherLogin() {
               </LinearGradient>
             </TouchableOpacity>
 
-            {/* Divider */}
             <View style={styles.divider}>
               <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
               <Text style={[styles.dividerText, { color: colors.textLight }]}>or</Text>
               <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
             </View>
 
-            {/* Sign Up Button */}
             <TouchableOpacity 
               style={[styles.signUpButton, { backgroundColor: colors.background, borderColor: colors.border }]} 
               onPress={navigateToSignUp} 
@@ -180,7 +181,6 @@ export default function TeacherLogin() {
               <Text style={[styles.signUpButtonText, { color: colors.primary }]}>New Teacher? Register Here</Text>
             </TouchableOpacity>
             
-            {/* Info Text */}
             <Text style={[styles.infoText, { color: colors.textLight }]}>
               New teacher registrations require HOD approval before you can log in.
             </Text>

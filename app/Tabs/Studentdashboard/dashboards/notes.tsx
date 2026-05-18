@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { collection, getDocs, query, where, orderBy } from "firebase/firestore";
+import { collection, getDocs, query, where } from "firebase/firestore";
 import React, { useEffect, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -50,12 +50,11 @@ export default function StudentNotesPage() {
           return;
         }
 
-        // Fetch notes for student's department AND semester
+        // REMOVED orderBy from the query - just filter
         const notesQuery = query(
           collection(db, "notes"),
           where("department", "==", studentDepartment),
-          where("semester", "==", studentSemester),
-          orderBy("createdAt", "desc")
+          where("semester", "==", studentSemester)
         );
         
         const snapshot = await getDocs(notesQuery);
@@ -65,39 +64,38 @@ export default function StudentNotesPage() {
           ...doc.data()
         } as Note));
         
-        setNotes(notesList);
-      } catch  {
-        // Fallback: fetch without orderBy
-        try {
-          const studentDepartment = user?.department;
-          const studentSemester = user?.semester;
+        // Sort manually on client side (no index needed!)
+        const sortedNotes = [...notesList].sort((a, b) => {
+          // Helper function to extract timestamp
+          const getTimestamp = (date: any): number => {
+            if (!date) return 0;
+            if (date.toDate) {
+              return date.toDate().getTime();
+            }
+            if (date instanceof Date) {
+              return date.getTime();
+            }
+            if (typeof date === 'string') {
+              return new Date(date).getTime();
+            }
+            if (typeof date === 'number') {
+              return date;
+            }
+            return 0;
+          };
           
-          if (studentDepartment && studentSemester) {
-            const notesQuery = query(
-              collection(db, "notes"),
-              where("department", "==", studentDepartment),
-              where("semester", "==", studentSemester)
-            );
-            
-            const snapshot = await getDocs(notesQuery);
-            
-            const notesList: Note[] = snapshot.docs.map(doc => ({
-              id: doc.id,
-              ...doc.data()
-            } as Note));
-            
-            // Sort manually
-            notesList.sort((a, b) => {
-              const dateA = a.createdAt?.toDate?.() || new Date(a.createdAt);
-              const dateB = b.createdAt?.toDate?.() || new Date(b.createdAt);
-              return dateB.getTime() - dateA.getTime();
-            });
-            
-            setNotes(notesList);
-          }
-        } catch {
-          Alert.alert("Error", "Failed to fetch notes.");
-        }
+          const timeA = getTimestamp(a.createdAt);
+          const timeB = getTimestamp(b.createdAt);
+          
+          // Descending order (newest first)
+          return timeB - timeA;
+        });
+        
+        setNotes(sortedNotes);
+      } catch (error) {
+        console.error("Error fetching notes:", error);
+        Alert.alert("Error", "Failed to fetch notes.");
+        setNotes([]);
       } finally {
         setFetching(false);
         
@@ -110,7 +108,7 @@ export default function StudentNotesPage() {
 
     fetchNotes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [user?.department, user?.semester]);
 
   const openLink = async (url: string = "") => {
     if (!url) {

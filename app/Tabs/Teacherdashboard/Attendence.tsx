@@ -557,8 +557,7 @@ export default function AttendanceScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.headerTitle}>Attendance</Text>
               <Text style={styles.headerSubtitle}>
-                {teacherInfo?.name || "Teacher"} • {role?.replace("_", " ").toUpperCase()}
-              </Text>
+                {teacherInfo?.name || "Teacher"} •{(role || "teacher").replace("_", " ").toUpperCase()}</Text>
             </View>
           </View>
         </LinearGradient>
