@@ -11,18 +11,20 @@ import { auth, db } from "../config/firebaseConfig.native";
 
 export { auth };
 
-// Storage keys
+// ==================== CONSTANTS ====================
+
 const AUTH_USER_KEY = "@cpm_auth_user";
 const AUTH_CREDENTIALS_KEY = "@cpm_auth_credentials";
 
-// Enhanced user roles
+// ==================== TYPES ====================
+
 export type UserRole = "student" | "teacher" | "hod";
 
 export interface TeacherRole {
   type: "subject_teacher" | "class_teacher" | "lab_incharge";
   department?: string;
   semester?: string;
-  subjectId?: string;
+  subjectCode?: string;
   subjectName?: string;
 }
 
@@ -41,7 +43,7 @@ export interface AppUser {
   qualification?: string;
   photoURL?: string | null;
   teacherRoles?: TeacherRole[];
-  requestStatus?: "pending" | "approved" | "rejected";
+  status?: "pending" | "approved" | "rejected";
 }
 
 interface AuthContextType {
@@ -64,6 +66,8 @@ export const useAuth = () => {
   return context;
 };
 
+// ==================== PROVIDER ====================
+
 interface AuthProviderProps {
   children: ReactNode;
 }
@@ -74,31 +78,28 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [loading, setLoading] = useState(true);
 
   // ==================== STORAGE HELPERS ====================
-  
+
   const saveUserToStorage = async (appUser: AppUser) => {
     try {
       await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(appUser));
     } catch (error) {
-      console.error("Error saving user to storage:", error);
+      console.error("Error saving user:", error);
     }
   };
 
   const loadUserFromStorage = async (): Promise<AppUser | null> => {
     try {
-      const userJson = await AsyncStorage.getItem(AUTH_USER_KEY);
-      if (userJson) {
-        return JSON.parse(userJson) as AppUser;
-      }
+      const json = await AsyncStorage.getItem(AUTH_USER_KEY);
+      return json ? JSON.parse(json) as AppUser : null;
     } catch (error) {
-      console.error("Error loading user from storage:", error);
+      console.error("Error loading user:", error);
+      return null;
     }
-    return null;
   };
 
   const saveCredentials = async (type: "teacher" | "student", identifier: string, password: string) => {
     try {
-      const credentials = { type, identifier, password };
-      await AsyncStorage.setItem(AUTH_CREDENTIALS_KEY, JSON.stringify(credentials));
+      await AsyncStorage.setItem(AUTH_CREDENTIALS_KEY, JSON.stringify({ type, identifier, password }));
     } catch (error) {
       console.error("Error saving credentials:", error);
     }
@@ -112,134 +113,102 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     }
   };
 
-  // ==================== FETCH ROLES ====================
-  
-  const fetchTeacherRoles = async (teacherId: string): Promise<TeacherRole[]> => {
-    try {
-      const roles: TeacherRole[] = [];
+  // ==================== TEACHER ROLE FETCHING ====================
 
-      // Check class teacher assignments
-      const classTeacherQuery = query(
-        collection(db, "classTeachers"),
-        where("teacherId", "==", teacherId)
+  const fetchTeacherRoles = async (teacherId: string): Promise<TeacherRole[]> => {
+    const roles: TeacherRole[] = [];
+    try {
+      // Class teacher assignments
+      const ctSnap = await getDocs(
+        query(collection(db, "classTeachers"), where("teacherId", "==", teacherId))
       );
-      const classTeacherSnapshot = await getDocs(classTeacherQuery);
-      classTeacherSnapshot.forEach((doc) => {
-        const data = doc.data();
-        roles.push({
-          type: "class_teacher",
-          department: data.department,
-          semester: data.semester,
-        });
+      ctSnap.forEach((d) => {
+        const data = d.data();
+        roles.push({ type: "class_teacher", department: data.department, semester: data.semester });
       });
 
-      // Check subject teacher and lab incharge assignments
-      const teacherSubjectsQuery = query(
-        collection(db, "teacherSubjects"),
-        where("teacherId", "==", teacherId)
+      // Subject teacher assignments
+      const tsSnap = await getDocs(
+        query(collection(db, "teacherSubjects"), where("teacherId", "==", teacherId))
       );
-      const teacherSubjectsSnapshot = await getDocs(teacherSubjectsQuery);
-      teacherSubjectsSnapshot.forEach((doc) => {
-        const data = doc.data();
+      tsSnap.forEach((d) => {
+        const data = d.data();
         roles.push({
           type: data.role || "subject_teacher",
           department: data.department,
           semester: data.semester,
-          subjectId: data.subjectId,
+          subjectCode: data.subjectCode,
           subjectName: data.subjectName,
         });
       });
-
-      return roles;
     } catch (error) {
       console.error("Error fetching teacher roles:", error);
-      return [];
     }
+    return roles;
   };
 
   // ==================== FETCH USER DATA ====================
-  
+
   const fetchUserData = useCallback(async (uid: string): Promise<AppUser | null> => {
     try {
-      // Check students collection
+      // ---- STUDENT ----
       const studentDoc = await getDoc(doc(db, "students", uid));
       if (studentDoc.exists()) {
         const data = studentDoc.data();
         const appUser: AppUser = {
           uid: studentDoc.id,
-          email: data.gmail || null,
+          email: data.email || null,
           name: data.name || "",
           role: "student",
           department: data.department || "",
           semester: data.semester || "",
           boardRollNo: data.boardRollNo || "",
-          classRollNo: data.classRollNo || "",
-          phone: data.phoneNo || "",
-          parentPhoneNo: data.parentPhoneNo || "",
-          requestStatus: data.requestStatus || "pending",
-          photoURL: null,
-        };
-        await saveUserToStorage(appUser);
-        return appUser;
-      }
-
-      // Check teachers collection
-      const teacherDoc = await getDoc(doc(db, "teachers", uid));
-      if (teacherDoc.exists()) {
-        const data = teacherDoc.data();
-        
-        // ✅ BLOCK DEACTIVATED TEACHERS
-        if (data.isActive === false) {
-          console.warn("Teacher account is deactivated:", uid);
-          return null;
-        }
-        
-        const teacherRoles = await fetchTeacherRoles(uid);
-        
-        // Check if HOD
-        const isHOD = data.role === "hod" || 
-          (Array.isArray(data.role) && data.role.includes("hod"));
-        
-        const appUser: AppUser = {
-          uid: teacherDoc.id,
-          email: data.gmail || data.email || null,
-          name: data.name || "",
-          role: isHOD ? "hod" : "teacher",
-          department: data.department || "",
-          phone: data.phoneNo || data.phone || "",
+          classRollNo: data.classRollNo || data.rollNo || "",
+          phone: data.phone || "",
+          parentPhoneNo: data.parentPhone || "",
           address: data.address || "",
-          qualification: data.qualification || "",
-          teacherRoles: teacherRoles.length > 0 ? teacherRoles : undefined,
-          requestStatus: data.requestStatus || "pending",
+          status: data.status || "approved",
           photoURL: data.profileImage || null,
         };
         await saveUserToStorage(appUser);
         return appUser;
       }
 
-      // Check admins collection for HOD
-      const adminDoc = await getDoc(doc(db, "admins", uid));
-      if (adminDoc.exists()) {
-        const data = adminDoc.data();
+      // ---- TEACHER / HOD ----
+      const teacherDoc = await getDoc(doc(db, "teachers", uid));
+      if (teacherDoc.exists()) {
+        const data = teacherDoc.data();
+
+        // Block deactivated teachers
+        if (data.isActive === false) {
+          console.warn("Deactivated teacher:", uid);
+          return null;
+        }
+
+        const teacherRoles = await fetchTeacherRoles(uid);
+        const isHOD = data.role === "hod" || (Array.isArray(data.role) && data.role.includes("hod"));
+
         const appUser: AppUser = {
-          uid: adminDoc.id,
+          uid: teacherDoc.id,
           email: data.email || null,
           name: data.name || "",
-          role: "hod",
+          role: isHOD ? "hod" : "teacher",
           department: data.department || "",
           phone: data.phone || "",
-          requestStatus: "approved",
-          photoURL: null,
+          address: data.address || "",
+          qualification: data.qualification || "",
+          teacherRoles: teacherRoles.length > 0 ? teacherRoles : undefined,
+          status: data.status || "approved",
+          photoURL: data.profileImage || null,
         };
         await saveUserToStorage(appUser);
         return appUser;
       }
 
-      console.warn("No user document found for uid:", uid);
+      console.warn("No user document for uid:", uid);
       return null;
     } catch (error) {
-      console.error("Error fetching user data:", error);
-      // Fallback to stored data
+      console.error("Error fetching user:", error);
       return await loadUserFromStorage();
     }
   }, []);
@@ -249,66 +218,69 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       const userData = await fetchUserData(firebaseUser.uid);
       setUser(userData);
     } else {
-      const storedUser = await loadUserFromStorage();
-      setUser(storedUser);
+      setUser(await loadUserFromStorage());
     }
   }, [firebaseUser, fetchUserData]);
 
+  // ==================== AUTO-LOGIN HELPER ====================
+
+  const tryAutoLogin = async () => {
+    try {
+      const credJson = await AsyncStorage.getItem(AUTH_CREDENTIALS_KEY);
+      if (!credJson) return;
+
+      const cred = JSON.parse(credJson);
+
+      if (cred.type === "teacher") {
+        // Teacher: Use Firebase Auth
+        await signInWithEmailAndPassword(auth, cred.identifier, cred.password);
+      } else if (cred.type === "student") {
+        // Student: Query Firestore, compare password, NO Firebase Auth
+        const snap = await getDocs(
+          query(collection(db, "students"), where("boardRollNo", "==", cred.identifier))
+        );
+        if (!snap.empty) {
+          const doc = snap.docs[0];
+          const data = doc.data();
+          if (data.password === cred.password && data.status === "approved") {
+            const userData = await fetchUserData(doc.id);
+            if (userData) {
+              setUser(userData);
+              return; // Success - don't clear credentials
+            }
+          }
+        }
+        // Student auto-login failed
+        await removeCredentials();
+        setUser(null);
+      }
+    } catch (error) {
+      console.log("Auto-login failed:", error);
+      await removeCredentials();
+      setUser(null);
+    }
+  };
+
   // ==================== AUTH STATE LISTENER ====================
-  
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      console.log("Auth state:", fbUser?.uid || "signed out");
       setFirebaseUser(fbUser);
-      
+
       if (fbUser) {
-        // User is signed in - fetch fresh data
+        // Firebase user exists (teacher/HOD)
         const userData = await fetchUserData(fbUser.uid);
         if (userData) {
           setUser(userData);
         } else {
-          // User data not found (possibly deactivated)
           await signOut(auth);
           await removeCredentials();
           setUser(null);
         }
       } else {
-        // User is signed out - try auto login
-        const storedUser = await loadUserFromStorage();
-        if (storedUser) {
-          setUser(storedUser);
-          
-          // Try auto-login with saved credentials
-          try {
-            const credentialsJson = await AsyncStorage.getItem(AUTH_CREDENTIALS_KEY);
-            if (credentialsJson) {
-              const credentials = JSON.parse(credentialsJson);
-              
-              if (credentials.type === "teacher") {
-                await signInWithEmailAndPassword(auth, credentials.identifier, credentials.password);
-              } else if (credentials.type === "student") {
-                const studentsQuery = query(
-                  collection(db, "students"),
-                  where("boardRollNo", "==", credentials.identifier)
-                );
-                const studentSnapshot = await getDocs(studentsQuery);
-                
-                if (!studentSnapshot.empty) {
-                  const studentDoc = studentSnapshot.docs[0];
-                  const studentData = studentDoc.data();
-                  if (studentData.gmail) {
-                    await signInWithEmailAndPassword(auth, studentData.gmail, credentials.password);
-                  }
-                }
-              }
-            }
-          } catch (autoLoginError) {
-            console.log("Auto-login failed:", autoLoginError);
-            setUser(null);
-            await removeCredentials();
-          }
-        } else {
-          setUser(null);
-        }
+        // No Firebase user - try student auto-login from AsyncStorage
+        await tryAutoLogin();
       }
       setLoading(false);
     });
@@ -316,106 +288,102 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     return unsubscribe;
   }, [fetchUserData]);
 
-  // ==================== LOGIN FUNCTIONS ====================
-  
+  // ==================== TEACHER/HOD LOGIN (Firebase Auth) ====================
+
   const login = useCallback(async (email: string, password: string) => {
-    try {
-      const credential = await signInWithEmailAndPassword(auth, email, password);
-      const userData = await fetchUserData(credential.user.uid);
-      
-      if (!userData) {
-        await signOut(auth);
-        
-        // Check if account is deactivated
-        const teacherDoc = await getDoc(doc(db, "teachers", credential.user.uid));
-        if (teacherDoc.exists() && teacherDoc.data().isActive === false) {
-          throw new Error("Your account has been deactivated. Please contact HOD.");
-        }
-        
-        throw new Error("Account not found. Please contact administrator.");
-      }
-      
-      if (userData.requestStatus === "pending") {
-        await signOut(auth);
-        throw new Error("Your account is pending approval. Please wait for HOD to approve.");
-      }
-      
-      if (userData.requestStatus === "rejected") {
-        await signOut(auth);
-        throw new Error("Your account has been rejected. Please contact HOD.");
-      }
-      
-      // Save credentials for persistent login
-      await saveCredentials("teacher", email, password);
-      
-      setUser(userData);
-    } catch (error: any) {
-      console.error("Login error:", error);
-      throw new Error(error.message || "Login failed");
+    // Authenticate with Firebase
+    const credential = await signInWithEmailAndPassword(auth, email, password);
+
+    // Fetch user data from Firestore
+    const userData = await fetchUserData(credential.user.uid);
+
+    if (!userData) {
+      await signOut(auth);
+      throw new Error("Account not found. Contact administrator.");
     }
+
+    if (userData.status === "pending") {
+      await signOut(auth);
+      throw new Error("Your account is pending approval.");
+    }
+
+    if (userData.status === "rejected") {
+      await signOut(auth);
+      throw new Error("Your account has been rejected.");
+    }
+
+    // Save credentials for persistent login
+    await saveCredentials("teacher", email, password);
+    setUser(userData);
   }, [fetchUserData]);
+
+  // ==================== STUDENT LOGIN (Firestore Only - NO Firebase Auth) ====================
 
   const loginAsStudent = useCallback(async (boardRollNo: string, password: string) => {
-    try {
-      const studentsQuery = query(
-        collection(db, "students"),
-        where("boardRollNo", "==", boardRollNo)
-      );
-      const studentSnapshot = await getDocs(studentsQuery);
-      
-      if (studentSnapshot.empty) {
-        throw new Error("No student found with this Board Roll Number");
-      }
-      
-      const studentDoc = studentSnapshot.docs[0];
-      const studentData = studentDoc.data();
-      
-      const studentEmail = studentData.gmail;
-      if (!studentEmail) {
-        throw new Error("Student email not found. Please contact class teacher.");
-      }
-      
-      const credential = await signInWithEmailAndPassword(auth, studentEmail, password);
-      
-      if (credential.user.uid !== studentDoc.id) {
-        await signOut(auth);
-        throw new Error("Authentication mismatch. Please try again.");
-      }
-      
-      const userData = await fetchUserData(studentDoc.id);
-      
-      if (!userData) {
-        await signOut(auth);
-        throw new Error("Student data not found.");
-      }
-      
-      if (userData.requestStatus === "pending") {
-        await signOut(auth);
-        throw new Error("Your account is pending approval. Please wait for class teacher to approve.");
-      }
-      
-      // Save credentials for persistent login
-      await saveCredentials("student", boardRollNo, password);
-      
-      setUser(userData);
-    } catch (error: any) {
-      console.error("Student login error:", error);
-      throw new Error(error.message || "Student login failed");
+    // 1. Find student in Firestore
+    const snap = await getDocs(
+      query(collection(db, "students"), where("boardRollNo", "==", boardRollNo))
+    );
+
+    if (snap.empty) {
+      throw new Error("No student found with this Board Roll Number.");
     }
+
+    const studentDoc = snap.docs[0];
+    const studentData = studentDoc.data();
+
+    // 2. Verify password (stored in Firestore)
+    if (studentData.password !== password) {
+      throw new Error("Invalid password. Please try again.");
+    }
+
+    // 3. Check status
+    const status = studentData.status || "approved";
+    if (status === "pending") {
+      throw new Error("Your account is pending approval.");
+    }
+    if (status === "rejected") {
+      throw new Error("Your account has been rejected.");
+    }
+
+    // 4. Build AppUser object
+    const userData: AppUser = {
+      uid: studentDoc.id,
+      email: studentData.email || null,
+      name: studentData.name || "",
+      role: "student",
+      department: studentData.department || "",
+      semester: studentData.semester || "",
+      boardRollNo: studentData.boardRollNo || boardRollNo,
+      classRollNo: studentData.classRollNo || "",
+      phone: studentData.phone || "",
+      parentPhoneNo: studentData.parentPhone || "",
+      address: studentData.address || "",
+      status: studentData.status || "approved",
+      photoURL: studentData.profileImage || null,
+    };
+
+    // 5. Save to AsyncStorage for persistent login
+    await saveUserToStorage(userData);
+    await saveCredentials("student", boardRollNo, password);
+
+    // 6. Set user in context
+    setUser(userData);
   }, [fetchUserData]);
 
+  // ==================== LOGOUT ====================
+
   const logout = useCallback(async () => {
-    try {
-      // Clear stored data first
-      await removeCredentials();
+    await removeCredentials();
+    // Only sign out Firebase if there's a Firebase user (teacher/HOD)
+    if (auth.currentUser) {
       await signOut(auth);
-      setUser(null);
-      setFirebaseUser(null);
-    } catch (error: any) {
-      console.error("Logout error:", error);
-      throw new Error("Logout failed");
     }
+    setUser(null);
+    setFirebaseUser(null);
   }, []);
+
+  // ==================== CONTEXT VALUE ====================
 
   const value: AuthContextType = {
     user,

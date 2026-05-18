@@ -4,7 +4,6 @@ import { useEffect } from "react";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
 
-// Auth guard component to handle redirects
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const segments = useSegments();
@@ -13,16 +12,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading) return;
 
-    const inAuthGroup = segments[0] === "Login";
+    const segmentPath = segments.join("/");
+    console.log("AuthGuard - Path:", segmentPath, "User:", user?.role);
 
-    if (!user && !inAuthGroup) {
-      router.replace("/Login");
-    } else if (user && inAuthGroup) {
-      if (user.role === "student") {
-        router.replace("/Tabs/Studentdashboard/studentdashboard");
-      } else {
-        router.replace("/Tabs/Teacherdashboard/Teacherdashboard");
-      }
+    // Allow home page and login pages without redirect
+    if (segmentPath === "" || segmentPath === "index" || segments[0] === "Login") {
+      return;
+    }
+
+    // If not logged in and trying to access protected pages
+    if (!user) {
+      router.replace("/Login/teacherlogin");
     }
   }, [user, loading, segments, router]);
 
@@ -52,21 +52,11 @@ export default function RootLayout() {
                 android: "slide_from_right",
               }),
               presentation: "card",
-              contentStyle: { backgroundColor: "#fff" },
             }}
           >
-            <Stack.Screen 
-              name="index" 
-              options={{ animation: "fade" }} 
-            />
-            <Stack.Screen 
-              name="Login" 
-              options={{ animation: "fade" }} 
-            />
-            <Stack.Screen 
-              name="Tabs" 
-              options={{ gestureEnabled: false }} 
-            />
+            <Stack.Screen name="index" />
+            <Stack.Screen name="Login" />
+            <Stack.Screen name="Tabs" options={{ gestureEnabled: false }} />
           </Stack>
         </AuthGuard>
       </AuthProvider>

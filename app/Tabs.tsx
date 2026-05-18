@@ -1,8 +1,10 @@
 import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { LightColors as colors } from "../assets/images/colors"; // adjust path if needed
+import { useTheme } from "../context/ThemeContext";
 
 export default function TabsLayout() {
+  const { colors } = useTheme();
+
   return (
     <Tabs
       screenOptions={{
@@ -12,27 +14,51 @@ export default function TabsLayout() {
           backgroundColor: colors.card,
           borderTopColor: colors.border,
         },
-        headerStyle: {
-          backgroundColor: colors.primary,
-        },
-        headerTintColor: "#fff",
+        headerShown: false,
       }}
     >
       <Tabs.Screen
-        name="Teacherdashboard"
+        name="Teacherdashboard/Teacherdashboard"
         options={{
-          title: "Teacher",
+          title: "Dashboard",
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="person-outline" size={size} color={color} />
+            <Ionicons name="home-outline" size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="Studentdashboard"
+        name="Studentdashboard/studentdashboard"
         options={{
           title: "Student",
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="people-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="Teacherdashboard/ManageTeachers"
+        options={{
+          title: "Teachers",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="people-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="Teacherdashboard/Students"
+        options={{
+          title: "Students",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="school-outline" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="ProfileSettings"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="settings-outline" size={size} color={color} />
           ),
         }}
       />
