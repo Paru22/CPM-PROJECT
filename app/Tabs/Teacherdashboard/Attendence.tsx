@@ -1,1071 +1,1082 @@
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import { collection, getDocs, query, where } from "firebase/firestore";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
   ActivityIndicator,
   Alert,
-  TextInput,
+  Dimensions,
   Modal,
-
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { Picker } from "@react-native-picker/picker";
-import { LinearGradient } from "expo-linear-gradient";
-import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import {
-  collection,
-  getDocs,
-  query,
-  where,
-  doc,
-  getDoc,
-  increment,
-  writeBatch,
-  orderBy,
-} from "firebase/firestore";
-import { db, auth } from "../../../config/firebaseConfig.native";
+import Animated, {
+  FadeInDown,
+  FadeInUp,
+  SlideInRight,
+  ZoomIn
+} from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { db } from "../../../config/firebaseConfig.native";
 import { useTheme } from "../../../context/ThemeContext";
 
-interface Student {
+const { width, height } = Dimensions.get("window");
+
+// ================= TYPES =================
+interface AttendanceItem {
   id: string;
-  name: string;
-  semester?: string | number;
-  department?: string;
-  boardRollNo: string;
-  email?: string;
-  rollNo?: string;
-  present: boolean;
+  date: string;
+  subjectName: string;
+  subjectCode: string;
+  lectureNo: number;
+  status: string;
 }
 
 interface Subject {
   id: string;
-  name: string;
-  subjectCode: string;
-  subjectName?: string;
-  semester?: number;
-  department?: string;
-}
-
-interface AttendanceRecord {
-  id: string;
-  studentId: string;
-  studentName: string;
-  date: string;
-  status: string;
-  subjectId: string;
   subjectName: string;
-  lectureNo: number;
-  semester: string;
+  subjectCode?: string;
+  [key: string]: any;
 }
 
-export default function AttendanceScreen() {
+type SortOption = "newest" | "oldest";
+
+export default function AttendancePage() {
   const router = useRouter();
   const { colors } = useTheme();
 
-  // Mode: "mark" or "view"
-  const [mode, setMode] = useState<"mark" | "view">("mark");
-  
-  const [role, setRole] = useState("");
-  const [teacherInfo, setTeacherInfo] = useState<any>(null);
-  const [students, setStudents] = useState<Student[]>([]);
-  const [assignedSubjects, setAssignedSubjects] = useState<Subject[]>([]);
-  const [selectedSemester, setSelectedSemester] = useState("");
-  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
+  // 🔥 TEMP STATIC STUDENT ID
+  const studentId = "230810104011";
+
+  // ================= STATES =================
+  const [attendanceData, setAttendanceData] = useState<AttendanceItem[]>([]);
+  const [filteredData, setFilteredData] = useState<AttendanceItem[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [selectedSubject, setSelectedSubject] = useState("All");
+  const [sortOption, setSortOption] = useState<SortOption>("newest");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [search, setSearch] = useState("");
   
-  // View mode states
-  const [viewSemester, setViewSemester] = useState("");
-  const [viewStudent, setViewStudent] = useState<Student | null>(null);
-  const [viewStudents, setViewStudents] = useState<Student[]>([]);
-  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>([]);
-  const [viewLoading, setViewLoading] = useState(false);
-  const [showViewModal, setShowViewModal] = useState(false);
-  const [showStudentPicker, setShowStudentPicker] = useState(false);
+  // Date filter states
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateFilterModal, setDateFilterModal] = useState(false);
   
-  // Mark mode states
-  const [lectureNoInput, setLectureNoInput] = useState("");
-  const [showLectureInputModal, setShowLectureInputModal] = useState(false);
-  const [lectureNo, setLectureNo] = useState<number | null>(null);
+  // Subject dropdown modal
+  const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
 
-  const semesters = ["1", "2", "3", "4", "5", "6"];
-
-  const fetchTeacherInfo = useCallback(async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) return;
-
-      const teacherDoc = await getDoc(doc(db, "teachers", user.uid));
-      if (teacherDoc.exists()) {
-        const data = teacherDoc.data();
-        setRole(data.role || "teacher");
-        setTeacherInfo(data);
-
-        if (data.role === "class_teacher") {
-          const ctQuery = query(
-            collection(db, "classTeachers"),
-            where("teacherId", "==", user.uid)
-          );
-          const ctSnap = await getDocs(ctQuery);
-          if (!ctSnap.empty) {
-            const ctData = ctSnap.docs[0].data();
-            setSelectedSemester(ctData.semester?.toString() || "");
-            setTeacherInfo((prev: any) => ({
-              ...prev,
-              assignedSemester: ctData.semester,
-              assignedDepartment: ctData.department,
-            }));
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Error fetching teacher info:", err);
+  // ================= SORT FUNCTION =================
+  const sortAttendanceData = (data: AttendanceItem[], sortBy: SortOption) => {
+    const sorted = [...data];
+    if (sortBy === "newest") {
+      sorted.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    } else {
+      sorted.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     }
-  }, []);
+    return sorted;
+  };
 
-  const fetchAssignedSubjects = useCallback(async () => {
+  // ================= FETCH SUBJECTS =================
+  const fetchSubjects = async () => {
     try {
-      const user = auth.currentUser;
-      if (!user) return;
-
-      let q;
-      if (role === "hod") {
-        q = query(collection(db, "subjects"));
-      } else {
-        q = query(
-          collection(db, "teacherSubjects"),
-          where("teacherId", "==", user.uid)
-        );
-      }
-
-      const snap = await getDocs(q);
-      const list: Subject[] = [];
-
-      if (role === "hod") {
-        snap.forEach((d) => {
-          list.push({ id: d.id, ...d.data() } as Subject);
+      const subjectsRef = collection(db, "subjects");
+      const snapshot = await getDocs(subjectsRef);
+      let subjectsList: Subject[] = [];
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        subjectsList.push({
+          id: doc.id,
+          subjectName: data.subjectName || "Unknown Subject",
+          subjectCode: data.subjectCode || "",
+          ...data,
         });
-      } else {
-        for (const d of snap.docs) {
-          const data = d.data();
-          if (data.subjectId) {
-            const subDoc = await getDoc(doc(db, "subjects", data.subjectId));
-            if (subDoc.exists()) {
-              list.push({ id: subDoc.id, ...subDoc.data() } as Subject);
-            }
-          }
-        }
-      }
-      setAssignedSubjects(list);
-    } catch (err) {
-      console.error("Error fetching subjects:", err);
-    }
-  }, [role]);
-
-  const fetchStudents = useCallback(async (semester?: string) => {
-    const sem = semester || selectedSemester;
-    if (!sem) {
-      setStudents([]);
-      return;
-    }
-
-    try {
-      const snap = await getDocs(collection(db, "students"));
-      const all = snap.docs.map(
-        (d) =>
-          ({
-            id: d.id,
-            ...d.data(),
-            present: true,
-          } as Student)
-      );
-
-      let filtered = all.filter(
-        (s) => s.semester?.toString() === sem.toString()
-      );
-
-      if (role === "class_teacher" && teacherInfo?.assignedDepartment) {
-        filtered = filtered.filter(
-          (s) => s.department === teacherInfo.assignedDepartment
-        );
-      }
-
-      setStudents(filtered);
-      return filtered;
-    } catch (err) {
-      console.error("Error fetching students:", err);
+      });
+      
+      // Sort subjects alphabetically
+      subjectsList.sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+      setSubjects(subjectsList);
+      
+      return subjectsList;
+    } catch (error) {
+      console.log("Error fetching subjects:", error);
+      Alert.alert("Error", "Failed to fetch subjects list");
       return [];
     }
-  }, [selectedSemester, role, teacherInfo]);
-
-  // ==================== VIEW ATTENDANCE FUNCTIONS ====================
-  
-  const fetchStudentsForView = async (semester: string) => {
-    setViewLoading(true);
-    try {
-      const snap = await getDocs(collection(db, "students"));
-      const all = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-        present: true,
-      } as Student));
-
-      let filtered = all.filter(
-        (s) => s.semester?.toString() === semester.toString()
-      );
-
-      if (role === "class_teacher" && teacherInfo?.assignedDepartment) {
-        filtered = filtered.filter(
-          (s) => s.department === teacherInfo.assignedDepartment
-        );
-      }
-
-      setViewStudents(filtered);
-      setShowStudentPicker(true);
-    } catch (err) {
-      console.error("Error fetching students:", err);
-      Alert.alert("Error", "Failed to load students");
-    } finally {
-      setViewLoading(false);
-    }
   };
 
-  const fetchStudentAttendance = async (student: Student) => {
-    setViewLoading(true);
+  // ================= FETCH ATTENDANCE =================
+  const fetchAttendance = async () => {
     try {
+      setLoading(true);
+      
+      // Fetch attendance records
       const q = query(
         collection(db, "attendance"),
-        where("studentId", "==", student.boardRollNo),
-        orderBy("date", "desc")
+        where("studentId", "==", studentId)
       );
-      
-      const snap = await getDocs(q);
-      const records: AttendanceRecord[] = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      } as AttendanceRecord));
+      const snapshot = await getDocs(q);
+      let temp: AttendanceItem[] = [];
 
-      setAttendanceRecords(records);
-      setViewStudent(student);
-      setShowStudentPicker(false);
-      setShowViewModal(true);
-    } catch (err) {
-      console.error("Error fetching attendance:", err);
-      // Fallback without orderBy
-      try {
-        const q = query(
-          collection(db, "attendance"),
-          where("studentId", "==", student.boardRollNo)
-        );
-        const snap = await getDocs(q);
-        const records: AttendanceRecord[] = snap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        } as AttendanceRecord));
-        
-        records.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        
-        setAttendanceRecords(records);
-        setViewStudent(student);
-        setShowStudentPicker(false);
-        setShowViewModal(true);
-      } catch (fallbackErr) {
-        console.error("Fallback error:", fallbackErr);
-        Alert.alert("Error", "Failed to load attendance records");
-      }
-    } finally {
-      setViewLoading(false);
-    }
-  };
-
-  const getSubjectAttendance = (subjectId: string) => {
-    const subjectRecords = attendanceRecords.filter(r => r.subjectId === subjectId);
-    const total = subjectRecords.length;
-    const present = subjectRecords.filter(r => r.status === "present").length;
-    const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
-    return { total, present, absent: total - present, percentage };
-  };
-
-  const getOverallAttendance = () => {
-    const total = attendanceRecords.length;
-    const present = attendanceRecords.filter(r => r.status === "present").length;
-    const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
-    return { total, present, absent: total - present, percentage };
-  };
-
-  // ==================== MARK ATTENDANCE FUNCTIONS ====================
-  
-  const checkExistingAttendance = useCallback(async () => {
-    if (!selectedSubject || !selectedSemester) return;
-
-    try {
-      const today = new Date().toISOString().split("T")[0];
-      const tq = query(
-        collection(db, "attendance"),
-        where("subjectId", "==", selectedSubject.id),
-        where("semester", "==", selectedSemester),
-        where("date", "==", today)
-      );
-      const tsnap = await getDocs(tq);
-
-      if (!tsnap.empty) {
-        const existingData = tsnap.docs[0].data();
-        setLectureNo(existingData.lectureNo || null);
-        setLectureNoInput(existingData.lectureNo?.toString() || "");
-
-        const absent = new Set<string>();
-        tsnap.forEach((d) => {
-          if (d.data().status === "absent") absent.add(d.data().studentId);
+      snapshot.forEach((docSnap) => {
+        const data = docSnap.data();
+        temp.push({
+          id: docSnap.id,
+          date: data.date || "",
+          subjectName: data.subjectName || "Unknown Subject",
+          subjectCode: data.subjectCode || "",
+          lectureNo: data.lectureNo || 1,
+          status: data.status || "absent",
         });
-        setStudents((prev) =>
-          prev.map((s) => ({
-            ...s,
-            present: !absent.has(s.boardRollNo),
-          }))
-        );
+      });
 
-        Alert.alert(
-          "Attendance Already Taken",
-          `Attendance for this subject was already taken today (Lecture #${existingData.lectureNo || "N/A"}). You can edit and re-save.`
-        );
-      } else {
-        setLectureNo(null);
-        setLectureNoInput("");
-      }
-    } catch (err) {
-      console.error("Error checking existing attendance:", err);
-    }
-  }, [selectedSubject, selectedSemester]);
+      // Sort by newest first initially
+      temp.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  useEffect(() => {
-    fetchTeacherInfo().then(() => setLoading(false));
-  }, [fetchTeacherInfo]);
-
-  useEffect(() => {
-    if (teacherInfo) fetchAssignedSubjects();
-  }, [teacherInfo, fetchAssignedSubjects]);
-
-  useEffect(() => {
-    if (selectedSemester && mode === "mark") fetchStudents();
-  }, [selectedSemester, fetchStudents, mode]);
-
-  useEffect(() => {
-    if (selectedSubject && selectedSemester && mode === "mark") {
-      checkExistingAttendance();
-    }
-  }, [selectedSubject, selectedSemester, checkExistingAttendance, mode]);
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await fetchStudents();
-    if (selectedSubject) await checkExistingAttendance();
-    setRefreshing(false);
-  };
-
-  const filteredStudents = useMemo(() => {
-    let f = students;
-    if (search) {
-      f = f.filter(
-        (s) =>
-          s.name?.toLowerCase().includes(search.toLowerCase()) ||
-          s.boardRollNo?.toLowerCase().includes(search.toLowerCase()) ||
-          s.email?.toLowerCase().includes(search.toLowerCase())
-      );
-    }
-    return f;
-  }, [students, search]);
-
-  const toggleAbsent = (boardRollNo: string) => {
-    setStudents((prev) =>
-      prev.map((s) =>
-        s.boardRollNo === boardRollNo ? { ...s, present: !s.present } : s
-      )
-    );
-  };
-
-  const markAllPresent = () => {
-    setStudents((prev) => prev.map((s) => ({ ...s, present: true })));
-  };
-
-  const markAllAbsent = () => {
-    setStudents((prev) => prev.map((s) => ({ ...s, present: false })));
-  };
-
-  const presentCount = students.filter((s) => s.present).length;
-  const absentCount = students.length - presentCount;
-
-  const openLectureInputModal = () => {
-    setShowLectureInputModal(true);
-  };
-
-  const confirmLectureNo = () => {
-    const num = parseInt(lectureNoInput.trim());
-    if (isNaN(num) || num < 1) {
-      Alert.alert("Error", "Please enter a valid positive lecture number");
-      return;
-    }
-    setLectureNo(num);
-    setShowLectureInputModal(false);
-  };
-
-  const saveAttendance = async () => {
-    if (!selectedSemester || !selectedSubject || students.length === 0) {
-      Alert.alert("Error", "Please select semester, subject and ensure students are loaded");
-      return;
-    }
-
-    if (!lectureNo) {
-      Alert.alert(
-        "Lecture Number Required",
-        "Please enter the lecture number before saving attendance.",
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Enter Lecture No", onPress: openLectureInputModal },
-        ]
-      );
-      return;
-    }
-
-    Alert.alert(
-      "Confirm Save",
-      `Subject: ${selectedSubject.subjectName || selectedSubject.name}\nLecture #${lectureNo}\nDate: ${new Date().toLocaleDateString()}\nPresent: ${presentCount} | Absent: ${absentCount}\n\nSave attendance?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Save", onPress: proceedSave },
-      ]
-    );
-  };
-
-  const proceedSave = async () => {
-    setSaving(true);
-    try {
-      const user = auth.currentUser;
-      if (!user) {
-        Alert.alert("Error", "Not authenticated");
-        setSaving(false);
-        return;
-      }
-
-      const today = new Date().toISOString().split("T")[0];
-      const batch = writeBatch(db);
-      const col = collection(db, "attendance");
-
-      for (const student of students) {
-        const status = student.present ? "present" : "absent";
-        const uniqueKey = `${student.boardRollNo}_${selectedSubject!.id}_${selectedSemester}_${today}`;
-
-        const attendanceData = {
-          studentId: student.boardRollNo,
-          studentName: student.name || "Unknown",
-          studentEmail: student.email || "",
-          studentBoardRollNo: student.boardRollNo,
-          studentRollNo: student.rollNo || "",
-          date: today,
-          timestamp: new Date().toISOString(),
-          subjectId: selectedSubject!.id,
-          subjectCode: selectedSubject!.subjectCode || "",
-          subjectName: selectedSubject!.subjectName || selectedSubject!.name || "",
-          semester: selectedSemester,
-          department: student.department || teacherInfo?.assignedDepartment || "",
-          status,
-          markedBy: user.uid,
-          markedByName: teacherInfo?.name || "Teacher",
-          markedByRole: role,
-          markedAt: new Date().toISOString(),
-          lectureNo: lectureNo,
-          uniqueKey,
-          academicYear: new Date().getFullYear().toString(),
-        };
-
-        const eq = query(col, where("uniqueKey", "==", uniqueKey));
-        const esnap = await getDocs(eq);
-
-        if (!esnap.empty) {
-          batch.update(doc(db, "attendance", esnap.docs[0].id), {
-            status,
-            lectureNo: lectureNo,
-            markedAt: new Date().toISOString(),
-            markedBy: user.uid,
-            markedByName: teacherInfo?.name || "Teacher",
-          });
-        } else {
-          batch.set(doc(col), attendanceData);
-        }
-      }
-
-      if (selectedSubject!.id) {
-        const tq = query(
-          col,
-          where("subjectId", "==", selectedSubject!.id),
-          where("semester", "==", selectedSemester),
-          where("date", "==", today)
-        );
-        const tsnap = await getDocs(tq);
-        if (tsnap.empty) {
-          batch.update(doc(db, "subjects", selectedSubject!.id), {
-            totalLectures: increment(1),
-            lastLectureDate: today,
-            lastLectureNo: lectureNo,
-          });
-        }
-      }
-
-      await batch.commit();
-      Alert.alert("Success", `Attendance saved!\nLecture #${lectureNo}\nPresent: ${presentCount}\nAbsent: ${absentCount}`);
-      
-      setSelectedSubject(null);
-      setLectureNo(null);
-      setLectureNoInput("");
-    } catch (err: any) {
-      console.error("Save error:", err);
-      Alert.alert("Error", "Failed to save: " + err.message);
+      setAttendanceData(temp);
+      setFilteredData(temp);
+    } catch (error) {
+      console.log(error);
+      Alert.alert("Error", "Failed to fetch attendance");
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   };
 
+  // ================= FETCH ALL DATA =================
+  const fetchAllData = async () => {
+    setLoading(true);
+    await Promise.all([fetchSubjects(), fetchAttendance()]);
+    setLoading(false);
+  };
+
+  // ================= INITIAL LOAD =================
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+
+  // ================= REFRESH =================
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchAllData();
+    setRefreshing(false);
+  }, []);
+
+  // ================= FILTER, SORT, AND DATE FILTER =================
+  useEffect(() => {
+    let result = [...attendanceData];
+    
+    // Apply subject filter
+    if (selectedSubject !== "All") {
+      result = result.filter((item) => item.subjectName === selectedSubject);
+    }
+    
+    // Apply date filter
+    if (selectedDate) {
+      const dateString = selectedDate.toISOString().split('T')[0];
+      result = result.filter((item) => item.date === dateString);
+    }
+    
+    // Apply sorting
+    result = sortAttendanceData(result, sortOption);
+    
+    setFilteredData(result);
+  }, [selectedSubject, attendanceData, sortOption, selectedDate]);
+
+  // ================= CLEAR DATE FILTER =================
+  const clearDateFilter = () => {
+    setSelectedDate(null);
+    setDateFilterModal(false);
+  };
+
+  // ================= CLEAR ALL FILTERS =================
+  const clearAllFilters = () => {
+    setSelectedSubject("All");
+    setSelectedDate(null);
+    setSortOption("newest");
+  };
+
+  // ================= HANDLE DATE CHANGE =================
+  const onDateChange = (event: any, date?: Date) => {
+    setShowDatePicker(false);
+    if (date) {
+      setSelectedDate(date);
+      setDateFilterModal(false);
+    }
+  };
+
+  // ================= CALCULATIONS =================
+  const totalClasses = filteredData.length;
+  const presentClasses = filteredData.filter(
+    (item) => String(item.status).toLowerCase() === "present"
+  ).length;
+  const absentClasses = totalClasses - presentClasses;
+  const percentage = totalClasses > 0 ? (presentClasses / totalClasses) * 100 : 0;
+  const percentageColor = percentage >= 75 ? "#4CAF50" : percentage >= 50 ? "#FF9800" : "#F44336";
+
+  // Get unique subjects from attendance data for filter options
+  const attendanceSubjects = ["All", ...new Set(attendanceData.map(item => item.subjectName))];
+
+  // ================= LOADING =================
   if (loading) {
     return (
-      <View style={[styles.loadingContainer, { backgroundColor: colors?.background || "#fff" }]}>
-        <ActivityIndicator size="large" color={colors?.primary || "#2563EB"} />
-        <Text style={[styles.loadingText, { color: colors?.textDark || "#333" }]}>Loading attendance...</Text>
-      </View>
+      <LinearGradient
+        colors={[colors.primary, colors.secondary || "#6B4EFF"]}
+        style={styles.loader}
+      >
+        <Animated.View entering={ZoomIn}>
+          <ActivityIndicator size="large" color="#fff" />
+          <Text style={styles.loaderText}>Loading Attendance...</Text>
+        </Animated.View>
+      </LinearGradient>
     );
   }
 
-  const overall = getOverallAttendance();
-
+  // ================= UI =================
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors?.background || "#F3F4F6" }]}>
-      <ScrollView
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors?.primary || "#2563EB"]} />}
-        showsVerticalScrollIndicator={false}
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+
+      {/* Header Gradient */}
+      <LinearGradient
+        colors={[colors.primary, colors.secondary || "#6B4EFF"]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.headerGradient}
       >
-        {/* Header */}
-        <LinearGradient colors={[colors?.primary || "#2563EB", colors?.secondary || "#7C3AED"]} style={styles.header}>
-          <View style={styles.headerContent}>
-            <TouchableOpacity onPress={() => router.back()} style={styles.headerButton}>
+        <SafeAreaView style={styles.headerSafeArea}>
+          <Animated.View entering={FadeInDown} style={styles.headerContent}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
               <Ionicons name="arrow-back" size={24} color="#fff" />
             </TouchableOpacity>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.headerTitle}>Attendance</Text>
-              <Text style={styles.headerSubtitle}>
-                {teacherInfo?.name || "Teacher"} •{(role || "teacher").replace("_", " ").toUpperCase()}</Text>
+            <View style={styles.headerTextContainer}>
+              <Text style={styles.headerTitle}>Attendance Overview</Text>
+              <Text style={styles.headerSubtitle}>Track your academic progress</Text>
+            </View>
+            <TouchableOpacity onPress={clearAllFilters} style={styles.clearAllButton}>
+              <Ionicons name="refresh-circle" size={28} color="#fff" />
+            </TouchableOpacity>
+          </Animated.View>
+        </SafeAreaView>
+      </LinearGradient>
+
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+        }
+        style={styles.scrollView}
+      >
+        {/* Summary Cards */}
+        <Animated.View entering={FadeInUp.delay(200)} style={styles.summaryContainer}>
+          <LinearGradient
+            colors={[percentageColor + "20", percentageColor + "10"]}
+            style={[styles.mainCard, { borderLeftColor: percentageColor }]}
+          >
+            <View style={styles.percentageContainer}>
+              <Text style={[styles.percentageText, { color: percentageColor }]}>
+                {percentage.toFixed(1)}%
+              </Text>
+              <View
+                style={[
+                  styles.percentageCircle,
+                  {
+                    width: (percentage / 100) * 120,
+                    backgroundColor: percentageColor + "40",
+                  },
+                ]}
+              />
+            </View>
+            <Text style={styles.attendanceStatus}>
+              {percentage >= 75
+                ? "Excellent! 🎉"
+                : percentage >= 50
+                ? "Keep it up! 📚"
+                : "Need Improvement ⚠️"}
+            </Text>
+          </LinearGradient>
+
+          <View style={styles.statsRow}>
+            <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+              <Ionicons name="checkmark-circle" size={32} color="#4CAF50" />
+              <Text style={[styles.statNumber, { color: colors.textDark }]}>{presentClasses}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Present</Text>
+            </View>
+            <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+              <Ionicons name="close-circle" size={32} color="#F44336" />
+              <Text style={[styles.statNumber, { color: colors.textDark }]}>{absentClasses}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Absent</Text>
+            </View>
+            <View style={[styles.statCard, { backgroundColor: colors.card }]}>
+              <Ionicons name="book" size={32} color={colors.primary} />
+              <Text style={[styles.statNumber, { color: colors.textDark }]}>{totalClasses}</Text>
+              <Text style={[styles.statLabel, { color: colors.textLight }]}>Total</Text>
             </View>
           </View>
-        </LinearGradient>
+        </Animated.View>
 
-        {/* Mode Toggle */}
-        <View style={styles.modeToggle}>
-          <TouchableOpacity
-            style={[styles.modeBtn, mode === "mark" && { backgroundColor: colors?.primary || "#2563EB" }]}
-            onPress={() => setMode("mark")}
-          >
-            <Ionicons name="create-outline" size={18} color={mode === "mark" ? "#fff" : colors?.textDark || "#333"} />
-            <Text style={[styles.modeBtnText, { color: mode === "mark" ? "#fff" : colors?.textDark || "#333" }]}>
-              Mark Attendance
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.modeBtn, mode === "view" && { backgroundColor: colors?.primary || "#2563EB" }]}
-            onPress={() => setMode("view")}
-          >
-            <Ionicons name="eye-outline" size={18} color={mode === "view" ? "#fff" : colors?.textDark || "#333"} />
-            <Text style={[styles.modeBtnText, { color: mode === "view" ? "#fff" : colors?.textDark || "#333" }]}>
-              View Attendance
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* ==================== MARK ATTENDANCE MODE ==================== */}
-        {mode === "mark" && (
-          <>
-            <View style={styles.statsContainer}>
-              <View style={[styles.statCard, { backgroundColor: colors?.card || "#fff" }]}>
-                <Ionicons name="people-outline" size={20} color="#1976D2" />
-                <Text style={[styles.statValue, { color: colors?.textDark || "#333" }]}>{students.length}</Text>
-                <Text style={[styles.statLabel, { color: colors?.textLight || "#666" }]}>Total</Text>
-              </View>
-              <View style={[styles.statCard, { backgroundColor: colors?.card || "#fff" }]}>
-                <Ionicons name="checkmark-circle-outline" size={20} color="#4CAF50" />
-                <Text style={[styles.statValue, { color: "#4CAF50" }]}>{presentCount}</Text>
-                <Text style={[styles.statLabel, { color: colors?.textLight || "#666" }]}>Present</Text>
-              </View>
-              <View style={[styles.statCard, { backgroundColor: colors?.card || "#fff", borderWidth: 2, borderColor: absentCount > 0 ? "#F44336" : "transparent" }]}>
-                <Ionicons name="close-circle-outline" size={20} color="#F44336" />
-                <Text style={[styles.statValue, { color: "#F44336" }]}>{absentCount}</Text>
-                <Text style={[styles.statLabel, { color: colors?.textLight || "#666" }]}>Absent</Text>
-              </View>
-            </View>
-
-            {/* Filter Card */}
-            <View style={[styles.filterCard, { backgroundColor: colors?.card || "#fff" }]}>
-              <Text style={[styles.filterTitle, { color: colors?.textDark || "#333" }]}>Attendance Filters</Text>
-
-              <Text style={[styles.label, { color: colors?.textLight || "#666" }]}>Semester *</Text>
-              <View style={[styles.dropdown, { borderColor: colors?.border || "#ddd", backgroundColor: colors?.background || "#f9f9f9" }]}>
-                <Picker
-                  selectedValue={selectedSemester}
-                  onValueChange={(v) => { setSelectedSemester(v); setSelectedSubject(null); setLectureNo(null); }}
-                  dropdownIconColor={colors?.textDark || "#333"}
-                  enabled={role !== "class_teacher"}
-                >
-                  <Picker.Item label="Select Semester" value="" />
-                  {semesters.map((s) => <Picker.Item key={s} label={`Semester ${s}`} value={s} />)}
-                </Picker>
-              </View>
-
-              <Text style={[styles.label, { color: colors?.textLight || "#666" }]}>Subject *</Text>
-              <View style={[styles.dropdown, { borderColor: colors?.border || "#ddd", backgroundColor: colors?.background || "#f9f9f9" }]}>
-                <Picker
-                  selectedValue={selectedSubject?.id || ""}
-                  onValueChange={(v) => {
-                    const sub = assignedSubjects.find((s) => s.id === v);
-                    setSelectedSubject(sub || null);
-                    setLectureNo(null);
-                    setLectureNoInput("");
-                  }}
-                  dropdownIconColor={colors?.textDark || "#333"}
-                  enabled={!!selectedSemester}
-                >
-                  <Picker.Item label="Select Subject" value="" />
-                  {assignedSubjects.map((sub) => (
-                    <Picker.Item key={sub.id} label={`${sub.subjectCode || ""} - ${sub.subjectName || sub.name || ""}`} value={sub.id} />
-                  ))}
-                </Picker>
-              </View>
-
-              {selectedSubject && (
-                <View style={[styles.lectureSection, { backgroundColor: colors?.primary + "10" || "#E3F2FD" }]}>
-                  <Text style={[styles.lectureSectionTitle, { color: colors?.textDark || "#333" }]}>
-                    📚 {selectedSubject.subjectCode} - {selectedSubject.subjectName || selectedSubject.name}
-                  </Text>
-                  
-                  <View style={styles.lectureInputRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.lectureLabel, { color: colors?.textDark || "#333" }]}>Lecture Number *</Text>
-                      <View style={[styles.lectureInputContainer, { borderColor: colors?.border || "#ddd", backgroundColor: colors?.background || "#fff" }]}>
-                        <Ionicons name="book-outline" size={18} color={colors?.primary || "#2563EB"} style={{ marginRight: 8 }} />
-                        <TextInput
-                          style={[styles.lectureInput, { color: colors?.textDark || "#333" }]}
-                          placeholder="Enter lecture number"
-                          placeholderTextColor={colors?.textLight || "#999"}
-                          value={lectureNoInput}
-                          onChangeText={setLectureNoInput}
-                          keyboardType="numeric"
-                        />
-                        <TouchableOpacity
-                          style={[styles.setLectureBtn, { backgroundColor: colors?.primary || "#2563EB" }]}
-                          onPress={confirmLectureNo}
-                        >
-                          <Text style={styles.setLectureBtnText}>Set</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-
-                  {lectureNo && (
-                    <View style={[styles.lectureSetBadge, { backgroundColor: "#4CAF50" + "20" }]}>
-                      <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
-                      <Text style={[styles.lectureSetText, { color: "#4CAF50" }]}>
-                        Lecture #{lectureNo} set for {new Date().toLocaleDateString()}
-                      </Text>
-                    </View>
-                  )}
-
-                  {!lectureNo && (
-                    <View style={[styles.lectureWarning, { backgroundColor: "#FFF3E0" }]}>
-                      <Ionicons name="warning-outline" size={16} color="#FF9800" />
-                      <Text style={[styles.lectureWarningText, { color: "#E65100" }]}>
-                        Please enter and set the lecture number before saving
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              )}
-
-              {selectedSubject && students.length > 0 && (
-                <View style={styles.quickActions}>
-                  <TouchableOpacity style={[styles.quickBtn, { backgroundColor: "#E8F5E9" }]} onPress={markAllPresent}>
-                    <Ionicons name="checkmark-done" size={16} color="#4CAF50" />
-                    <Text style={{ color: "#4CAF50", fontSize: 12 }}>All Present</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.quickBtn, { backgroundColor: "#FFEBEE" }]} onPress={markAllAbsent}>
-                    <Ionicons name="close" size={16} color="#F44336" />
-                    <Text style={{ color: "#F44336", fontSize: 12 }}>All Absent</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </View>
-
-            {/* Search */}
-            {selectedSemester !== "" && (
-              <View style={styles.searchContainer}>
-                <Ionicons name="search-outline" size={20} color={colors?.textLight || "#666"} style={styles.searchIcon} />
-                <TextInput
-                  placeholder="Search by name, roll no..."
-                  value={search}
-                  onChangeText={setSearch}
-                  style={[styles.searchInput, { backgroundColor: colors?.card || "#fff", color: colors?.textDark || "#333" }]}
-                  placeholderTextColor={colors?.textLight || "#999"}
-                />
-              </View>
-            )}
-
-            {/* Student List */}
-            {selectedSubject && selectedSemester ? (
-              <View style={styles.section}>
-                <Text style={[styles.sectionTitle, { color: colors?.textDark || "#333" }]}>
-                  Students ({filteredStudents.length}) - Semester {selectedSemester}
+        {/* Filter Section */}
+        <Animated.View entering={FadeInUp.delay(400)} style={styles.filterSection}>
+          {/* Subject Filter Dropdown */}
+          <View style={styles.filterGroup}>
+            <View style={styles.filterHeader}>
+              <Ionicons name="book-outline" size={22} color={colors.primary} />
+              <Text style={[styles.filterTitle, { color: colors.textDark }]}>Filter by Subject</Text>
+              {subjects.length > 0 && (
+                <Text style={[styles.subjectCount, { color: colors.textLight }]}>
+                  ({subjects.length} subjects available)
                 </Text>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[styles.dropdownButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => setShowSubjectDropdown(true)}
+            >
+              <Text style={[styles.dropdownButtonText, { color: colors.textDark }]}>
+                {selectedSubject}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color={colors.textLight} />
+            </TouchableOpacity>
+          </View>
 
-                {filteredStudents.length === 0 ? (
-                  <View style={[styles.emptyContainer, { backgroundColor: colors?.card || "#fff" }]}>
-                    <Ionicons name="people-outline" size={48} color={colors?.textLight || "#999"} />
-                    <Text style={[styles.emptyText, { color: colors?.textLight || "#999" }]}>No students found</Text>
+          {/* Date Filter */}
+          <View style={styles.filterGroup}>
+            <View style={styles.filterHeader}>
+              <Ionicons name="calendar-outline" size={22} color={colors.primary} />
+              <Text style={[styles.filterTitle, { color: colors.textDark }]}>Filter by Date</Text>
+            </View>
+            <View style={styles.dateFilterContainer}>
+              <TouchableOpacity
+                style={[styles.dateButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                onPress={() => setDateFilterModal(true)}
+              >
+                <Ionicons name="calendar" size={20} color={colors.primary} />
+                <Text style={[styles.dateButtonText, { color: colors.textDark }]}>
+                  {selectedDate ? selectedDate.toLocaleDateString() : "Select Date"}
+                </Text>
+              </TouchableOpacity>
+              {selectedDate && (
+                <TouchableOpacity
+                  style={[styles.clearButton, { backgroundColor: colors.card }]}
+                  onPress={clearDateFilter}
+                >
+                  <Ionicons name="close-circle" size={20} color="#F44336" />
+                  <Text style={styles.clearButtonText}>Clear</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* Sort Options */}
+          <View style={styles.filterGroup}>
+            <View style={styles.filterHeader}>
+              <Ionicons name="swap-vertical" size={22} color={colors.primary} />
+              <Text style={[styles.filterTitle, { color: colors.textDark }]}>Sort by Date</Text>
+            </View>
+            <View style={styles.sortButtonsContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.sortButton,
+                  { backgroundColor: colors.card },
+                  sortOption === "newest" && { backgroundColor: colors.primary }
+                ]}
+                onPress={() => setSortOption("newest")}
+              >
+                <Ionicons 
+                  name="arrow-down" 
+                  size={18} 
+                  color={sortOption === "newest" ? "#fff" : colors.textDark} 
+                />
+                <Text 
+                  style={[
+                    styles.sortButtonText, 
+                    { color: sortOption === "newest" ? "#fff" : colors.textDark }
+                  ]}
+                >
+                  Newest First
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.sortButton,
+                  { backgroundColor: colors.card },
+                  sortOption === "oldest" && { backgroundColor: colors.primary }
+                ]}
+                onPress={() => setSortOption("oldest")}
+              >
+                <Ionicons 
+                  name="arrow-up" 
+                  size={18} 
+                  color={sortOption === "oldest" ? "#fff" : colors.textDark} 
+                />
+                <Text 
+                  style={[
+                    styles.sortButtonText, 
+                    { color: sortOption === "oldest" ? "#fff" : colors.textDark }
+                  ]}
+                >
+                  Oldest First
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Active Filters Display */}
+          {(selectedSubject !== "All" || selectedDate) && (
+            <View style={styles.activeFilters}>
+              <Text style={[styles.activeFiltersTitle, { color: colors.textLight }]}>Active Filters:</Text>
+              <View style={styles.filterChips}>
+                {selectedSubject !== "All" && (
+                  <View style={[styles.filterChip, { backgroundColor: colors.primary + "20" }]}>
+                    <Ionicons name="book" size={14} color={colors.primary} />
+                    <Text style={[styles.filterChipText, { color: colors.primary }]}>{selectedSubject}</Text>
+                    <TouchableOpacity onPress={() => setSelectedSubject("All")}>
+                      <Ionicons name="close-circle" size={16} color={colors.primary} />
+                    </TouchableOpacity>
                   </View>
-                ) : (
-                  filteredStudents.map((student) => (
-                    <View key={student.boardRollNo || student.id} style={[styles.studentCard, { backgroundColor: colors?.card || "#fff" }, !student.present && styles.absentCard]}>
-                      <View style={styles.studentInfo}>
-                        <View style={[styles.studentNumber, { backgroundColor: student.present ? "#4CAF5020" : "#F4433620" }]}>
-                          <Text style={[styles.studentNumberText, { color: student.present ? "#4CAF50" : "#F44336" }]}>
-                            {student.present ? "P" : "A"}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.studentName, { color: colors?.textDark || "#333" }]}>{student.name || "Unknown"}</Text>
-                          <Text style={[styles.studentSub, { color: colors?.textLight || "#666" }]}>Roll: {student.boardRollNo || "N/A"}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.btnRow}>
-                        <TouchableOpacity
-                          style={[styles.attendanceBtn, student.present ? styles.presentActive : styles.absentInactive]}
-                          onPress={() => { if (!student.present) toggleAbsent(student.boardRollNo); }}
-                        >
-                          <Text style={[styles.attendanceBtnText, { color: student.present ? "#fff" : "#4CAF50" }]}>P</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.attendanceBtn, !student.present ? styles.absentActive : styles.presentInactive]}
-                          onPress={() => { if (student.present) toggleAbsent(student.boardRollNo); }}
-                        >
-                          <Text style={[styles.attendanceBtnText, { color: !student.present ? "#fff" : "#F44336" }]}>A</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))
+                )}
+                {selectedDate && (
+                  <View style={[styles.filterChip, { backgroundColor: colors.primary + "20" }]}>
+                    <Ionicons name="calendar" size={14} color={colors.primary} />
+                    <Text style={[styles.filterChipText, { color: colors.primary }]}>
+                      {selectedDate.toLocaleDateString()}
+                    </Text>
+                    <TouchableOpacity onPress={clearDateFilter}>
+                      <Ionicons name="close-circle" size={16} color={colors.primary} />
+                    </TouchableOpacity>
+                  </View>
                 )}
               </View>
-            ) : (
-              <View style={[styles.emptyContainer, { backgroundColor: colors?.card || "#fff", marginHorizontal: 15, marginTop: 20 }]}>
-                <Ionicons name="book-outline" size={48} color={colors?.textLight || "#999"} />
-                <Text style={[styles.emptyText, { color: colors?.textLight || "#999" }]}>
-                  {!selectedSemester ? "Please select a semester first" : "Please select a subject"}
-                </Text>
-              </View>
-            )}
-
-            {selectedSubject && students.length > 0 && (
-              <TouchableOpacity style={[styles.saveAttendanceBtn, saving && { opacity: 0.7 }]} onPress={saveAttendance} disabled={saving}>
-                <LinearGradient colors={[colors?.primary || "#2563EB", colors?.secondary || "#7C3AED"]} style={styles.saveGradient}>
-                  {saving ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="save-outline" size={22} color="#fff" />
-                      <Text style={styles.saveBtnText}>
-                        {lectureNo ? `Save Attendance (Lecture #${lectureNo})` : "Save Attendance"}
-                      </Text>
-                    </>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-            )}
-          </>
-        )}
-
-        {/* ==================== VIEW ATTENDANCE MODE ==================== */}
-        {mode === "view" && (
-          <View style={[styles.filterCard, { backgroundColor: colors?.card || "#fff", marginHorizontal: 15, marginTop: 15 }]}>
-            <Text style={[styles.filterTitle, { color: colors?.textDark || "#333" }]}>View Student Attendance</Text>
-            
-            <Text style={[styles.label, { color: colors?.textLight || "#666" }]}>Select Semester</Text>
-            <View style={[styles.dropdown, { borderColor: colors?.border || "#ddd", backgroundColor: colors?.background || "#f9f9f9" }]}>
-              <Picker
-                selectedValue={viewSemester}
-                onValueChange={(v) => {
-                  setViewSemester(v);
-                  if (v) fetchStudentsForView(v);
-                }}
-                dropdownIconColor={colors?.textDark || "#333"}
-              >
-                <Picker.Item label="Select Semester" value="" />
-                {semesters.map((s) => <Picker.Item key={s} label={`Semester ${s}`} value={s} />)}
-              </Picker>
             </View>
+          )}
+        </Animated.View>
 
-            {viewLoading && <ActivityIndicator color={colors?.primary || "#2563EB"} style={{ marginTop: 10 }} />}
-
-            {viewStudents.length > 0 && !viewStudent && (
-              <View style={{ marginTop: 10 }}>
-                <Text style={[styles.label, { color: colors?.textDark || "#333" }]}>
-                  {viewStudents.length} students found
-                </Text>
-                {viewStudents.map((student) => (
-                  <TouchableOpacity
-                    key={student.boardRollNo || student.id}
-                    style={[styles.studentCard, { backgroundColor: colors?.background || "#f9f9f9" }]}
-                    onPress={() => fetchStudentAttendance(student)}
-                  >
-                    <View style={styles.studentInfo}>
-                      <View style={[styles.studentNumber, { backgroundColor: colors?.primary + "20" || "#E3F2FD" }]}>
-                        <Ionicons name="person" size={16} color={colors?.primary || "#2563EB"} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.studentName, { color: colors?.textDark || "#333" }]}>{student.name}</Text>
-                        <Text style={[styles.studentSub, { color: colors?.textLight || "#666" }]}>Roll: {student.boardRollNo}</Text>
-                      </View>
-                      <Ionicons name="chevron-forward" size={20} color={colors?.textLight || "#999"} />
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {!viewSemester && (
-              <View style={[styles.emptyContainer, { backgroundColor: colors?.background || "#f9f9f9", marginTop: 15 }]}>
-                <Ionicons name="search-outline" size={48} color={colors?.textLight || "#999"} />
-                <Text style={[styles.emptyText, { color: colors?.textLight || "#999" }]}>
-                  Select a semester to view students
-                </Text>
-              </View>
-            )}
+        {/* Records Section */}
+        <Animated.View entering={FadeInUp.delay(600)} style={styles.recordsSection}>
+          <View style={styles.sectionHeader}>
+            <Ionicons name="time" size={22} color={colors.primary} />
+            <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Records</Text>
+            <Text style={[styles.recordCount, { color: colors.textLight }]}>{filteredData.length} entries</Text>
           </View>
-        )}
 
-        <View style={{ height: 30 }} />
+          {filteredData.length === 0 ? (
+            <View style={[styles.emptyState, { backgroundColor: colors.card }]}>
+              <Ionicons name="calendar-outline" size={64} color={colors.textLight} />
+              <Text style={[styles.emptyText, { color: colors.textLight }]}>No attendance records found</Text>
+              {(selectedSubject !== "All" || selectedDate) && (
+                <TouchableOpacity onPress={clearAllFilters} style={styles.resetButton}>
+                  <Text style={[styles.resetButtonText, { color: colors.primary }]}>Clear all filters</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            filteredData.map((item, index) => (
+              <Animated.View
+                key={item.id}
+                entering={SlideInRight.delay(index * 100)}
+                style={[styles.recordCard, { backgroundColor: colors.card }]}
+              >
+                <View style={styles.recordHeader}>
+                  <View style={styles.subjectIcon}>
+                    <Text style={styles.subjectInitial}>
+                      {item.subjectName.charAt(0)}
+                    </Text>
+                  </View>
+                  <View style={styles.recordInfo}>
+                    <Text style={[styles.subjectName, { color: colors.textDark }]}>
+                      {item.subjectName}
+                    </Text>
+                    <Text style={[styles.lectureInfo, { color: colors.textLight }]}>
+                      Lecture {item.lectureNo}
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      {
+                        backgroundColor:
+                          String(item.status).toLowerCase() === "present"
+                            ? "#4CAF50" + "20"
+                            : "#F44336" + "20",
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={
+                        String(item.status).toLowerCase() === "present"
+                          ? "checkmark"
+                          : "close"
+                      }
+                      size={16}
+                      color={
+                        String(item.status).toLowerCase() === "present"
+                          ? "#4CAF50"
+                          : "#F44336"
+                      }
+                    />
+                    <Text
+                      style={[
+                        styles.statusText,
+                        {
+                          color:
+                            String(item.status).toLowerCase() === "present"
+                              ? "#4CAF50"
+                              : "#F44336",
+                        },
+                      ]}
+                    >
+                      {String(item.status).toLowerCase() === "present"
+                        ? "Present"
+                        : "Absent"}
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.recordFooter}>
+                  <Ionicons name="calendar" size={14} color={colors.textLight} />
+                  <Text style={[styles.dateText, { color: colors.textLight }]}>
+                    {new Date(item.date).toLocaleDateString("en-US", {
+                      weekday: "short",
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </Text>
+                </View>
+              </Animated.View>
+            ))
+          )}
+        </Animated.View>
+
+        <View style={{ height: 100 }} />
       </ScrollView>
 
-      {/* ==================== VIEW ATTENDANCE DETAIL MODAL ==================== */}
-      <Modal visible={showViewModal} animationType="slide" transparent={true}>
-        <View style={styles.modalOverlay}>
-          <View style={[styles.viewModal, { backgroundColor: colors?.card || "#fff" }]}>
-            <LinearGradient colors={[colors?.primary || "#2563EB", colors?.secondary || "#7C3AED"]} style={styles.modalHeader}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modalTitle}>{viewStudent?.name || "Student"}</Text>
-                <Text style={styles.modalSubtitle}>Roll: {viewStudent?.boardRollNo}</Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowViewModal(false)}>
-                <Ionicons name="close" size={24} color="#fff" />
+      {/* Subject Dropdown Modal */}
+      <Modal
+        visible={showSubjectDropdown}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSubjectDropdown(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSubjectDropdown(false)}
+        >
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Select Subject</Text>
+              <TouchableOpacity onPress={() => setShowSubjectDropdown(false)}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
               </TouchableOpacity>
-            </LinearGradient>
-
-            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-              {/* Overall Stats */}
-              <View style={[styles.overallStatsCard, { backgroundColor: colors?.primary + "15" || "#E3F2FD" }]}>
-                <Text style={[styles.overallTitle, { color: colors?.textDark || "#333" }]}>Overall Attendance</Text>
-                <View style={styles.overallStatsRow}>
-                  <View style={styles.overallStat}>
-                    <Text style={[styles.overallStatValue, { color: overall.percentage >= 75 ? "#4CAF50" : overall.percentage >= 60 ? "#FF9800" : "#F44336" }]}>
-                      {overall.percentage}%
-                    </Text>
-                    <Text style={[styles.overallStatLabel, { color: colors?.textLight || "#666" }]}>Percentage</Text>
-                  </View>
-                  <View style={styles.overallStat}>
-                    <Text style={[styles.overallStatValue, { color: "#4CAF50" }]}>{overall.present}</Text>
-                    <Text style={[styles.overallStatLabel, { color: colors?.textLight || "#666" }]}>Present</Text>
-                  </View>
-                  <View style={styles.overallStat}>
-                    <Text style={[styles.overallStatValue, { color: "#F44336" }]}>{overall.absent}</Text>
-                    <Text style={[styles.overallStatLabel, { color: colors?.textLight || "#666" }]}>Absent</Text>
-                  </View>
-                  <View style={styles.overallStat}>
-                    <Text style={[styles.overallStatValue, { color: colors?.textDark || "#333" }]}>{overall.total}</Text>
-                    <Text style={[styles.overallStatLabel, { color: colors?.textLight || "#666" }]}>Total</Text>
-                  </View>
-                </View>
-              </View>
-
-              {/* Subject-wise Breakdown */}
-              <Text style={[styles.sectionTitle, { color: colors?.textDark || "#333", marginTop: 15 }]}>Subject-wise Breakdown</Text>
+            </View>
+            
+            {/* Search input for subjects */}
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color={colors.textLight} />
+              <Text style={[styles.searchText, { color: colors.textLight }]}>
+                {subjects.length} subjects loaded from database
+              </Text>
+            </View>
+            
+            <ScrollView style={styles.modalScroll}>
+              <TouchableOpacity
+                style={[
+                  styles.modalItem,
+                  selectedSubject === "All" && { backgroundColor: colors.primary + "20" }
+                ]}
+                onPress={() => {
+                  setSelectedSubject("All");
+                  setShowSubjectDropdown(false);
+                }}
+              >
+                <Text style={[styles.modalItemText, { color: colors.textDark }]}>All Subjects</Text>
+                {selectedSubject === "All" && (
+                  <Ionicons name="checkmark" size={20} color={colors.primary} />
+                )}
+              </TouchableOpacity>
               
-              {assignedSubjects.map((subject) => {
-                const stats = getSubjectAttendance(subject.id);
-                if (stats.total === 0) return null;
-                return (
-                  <View key={subject.id} style={[styles.subjectCard, { backgroundColor: colors?.background || "#f9f9f9" }]}>
-                    <Text style={[styles.subjectCardTitle, { color: colors?.textDark || "#333" }]}>
-                      {subject.subjectName || subject.name}
+              {subjects.map((subject) => (
+                <TouchableOpacity
+                  key={subject.id}
+                  style={[
+                    styles.modalItem,
+                    selectedSubject === subject.subjectName && { backgroundColor: colors.primary + "20" }
+                  ]}
+                  onPress={() => {
+                    setSelectedSubject(subject.subjectName);
+                    setShowSubjectDropdown(false);
+                  }}
+                >
+                  <View>
+                    <Text style={[styles.modalItemText, { color: colors.textDark }]}>
+                      {subject.subjectName}
                     </Text>
-                    <View style={styles.subjectStatsRow}>
-                      <View style={styles.subjectStat}>
-                        <Text style={[styles.subjectStatValue, { color: stats.percentage >= 75 ? "#4CAF50" : "#F44336" }]}>
-                          {stats.percentage}%
-                        </Text>
-                      </View>
-                      <View style={styles.subjectStat}>
-                        <Text style={[styles.subjectStatValue, { color: colors?.textDark || "#333" }]}>{stats.total}</Text>
-                        <Text style={[styles.subjectStatLabel, { color: colors?.textLight || "#666" }]}>Total</Text>
-                      </View>
-                      <View style={styles.subjectStat}>
-                        <Text style={[styles.subjectStatValue, { color: "#4CAF50" }]}>{stats.present}</Text>
-                        <Text style={[styles.subjectStatLabel, { color: colors?.textLight || "#666" }]}>P</Text>
-                      </View>
-                      <View style={styles.subjectStat}>
-                        <Text style={[styles.subjectStatValue, { color: "#F44336" }]}>{stats.absent}</Text>
-                        <Text style={[styles.subjectStatLabel, { color: colors?.textLight || "#666" }]}>A</Text>
-                      </View>
-                    </View>
-                    {/* Progress Bar */}
-                    <View style={[styles.progressBar, { backgroundColor: colors?.border || "#ddd" }]}>
-                      <View style={[styles.progressFill, { width: `${stats.percentage}%`, backgroundColor: stats.percentage >= 75 ? "#4CAF50" : "#F44336" }]} />
-                    </View>
+                    {subject.subjectCode && (
+                      <Text style={[styles.modalItemSubtext, { color: colors.textLight }]}>
+                        {subject.subjectCode}
+                      </Text>
+                    )}
                   </View>
-                );
-              })}
-
-              {/* Recent Records */}
-              <Text style={[styles.sectionTitle, { color: colors?.textDark || "#333", marginTop: 15 }]}>Recent Attendance Records</Text>
-              
-              {attendanceRecords.length === 0 ? (
-                <View style={[styles.emptyContainer, { backgroundColor: colors?.background || "#f9f9f9" }]}>
-                  <Ionicons name="document-text-outline" size={40} color={colors?.textLight || "#999"} />
-                  <Text style={[styles.emptyText, { color: colors?.textLight || "#999" }]}>No attendance records found</Text>
-                </View>
-              ) : (
-                attendanceRecords.slice(0, 20).map((record) => (
-                  <View key={record.id} style={[styles.recordCard, { backgroundColor: colors?.background || "#f9f9f9" }]}>
-                    <View style={styles.recordLeft}>
-                      <View style={[styles.recordStatus, { backgroundColor: record.status === "present" ? "#4CAF5020" : "#F4433620" }]}>
-                        <Ionicons
-                          name={record.status === "present" ? "checkmark-circle" : "close-circle"}
-                          size={20}
-                          color={record.status === "present" ? "#4CAF50" : "#F44336"}
-                        />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.recordSubject, { color: colors?.textDark || "#333" }]}>{record.subjectName}</Text>
-                        <Text style={[styles.recordDate, { color: colors?.textLight || "#666" }]}>
-                          {record.date} • Lecture #{record.lectureNo}
-                        </Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.recordStatusText, { color: record.status === "present" ? "#4CAF50" : "#F44336" }]}>
-                      {record.status === "present" ? "Present" : "Absent"}
-                    </Text>
-                  </View>
-                ))
-              )}
+                  {selectedSubject === subject.subjectName && (
+                    <Ionicons name="checkmark" size={20} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
             </ScrollView>
           </View>
-        </View>
+        </TouchableOpacity>
       </Modal>
-    </SafeAreaView>
+
+      {/* Date Picker Modal */}
+      <Modal
+        visible={dateFilterModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setDateFilterModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setDateFilterModal(false)}
+        >
+          <View style={[styles.datePickerModal, { backgroundColor: colors.card }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Select Date</Text>
+              <TouchableOpacity onPress={() => setDateFilterModal(false)}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={selectedDate || new Date()}
+              mode="date"
+              display="spinner"
+              onChange={onDateChange}
+              style={styles.datePicker}
+              textColor={colors.textDark}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
   );
 }
 
+// ================= STYLES =================
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
-  loadingText: { marginTop: 10, fontSize: 16 },
-  header: { padding: 20, paddingTop: 20, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 },
-  headerContent: { flexDirection: "row", alignItems: "center", gap: 12 },
-  headerButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.2)", justifyContent: "center", alignItems: "center" },
-  headerTitle: { fontSize: 20, fontWeight: "bold", color: "#fff" },
-  headerSubtitle: { fontSize: 12, color: "#fff", opacity: 0.9, marginTop: 2 },
-  
-  // Mode Toggle
-  modeToggle: { flexDirection: "row", marginHorizontal: 15, marginTop: 15, gap: 10 },
-  modeBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", padding: 12, borderRadius: 12, gap: 6, borderWidth: 1, borderColor: "#ddd" },
-  modeBtnText: { fontSize: 14, fontWeight: "600" },
-  
-  statsContainer: { flexDirection: "row", paddingHorizontal: 15, marginTop: 15, gap: 10 },
-  statCard: { flex: 1, alignItems: "center", padding: 12, borderRadius: 12, gap: 4, elevation: 2 },
-  statValue: { fontSize: 18, fontWeight: "bold" },
-  statLabel: { fontSize: 10 },
-  filterCard: { marginHorizontal: 15, marginTop: 15, padding: 15, borderRadius: 15, elevation: 2 },
-  filterTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 10 },
-  label: { fontSize: 13, marginBottom: 4, marginTop: 8 },
-  dropdown: { borderRadius: 10, overflow: "hidden", marginBottom: 8, borderWidth: 1 },
-  
-  lectureSection: { padding: 12, borderRadius: 10, marginTop: 10, marginBottom: 4 },
-  lectureSectionTitle: { fontSize: 14, fontWeight: "600", marginBottom: 10 },
-  lectureInputRow: { flexDirection: "row", alignItems: "flex-end", gap: 10 },
-  lectureLabel: { fontSize: 13, fontWeight: "600", marginBottom: 6 },
-  lectureInputContainer: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 10, paddingHorizontal: 10 },
-  lectureInput: { flex: 1, paddingVertical: 10, fontSize: 15 },
-  setLectureBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, marginLeft: 8 },
-  setLectureBtnText: { color: "#fff", fontSize: 13, fontWeight: "600" },
-  lectureSetBadge: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, padding: 8, borderRadius: 8 },
-  lectureSetText: { fontSize: 13, fontWeight: "600" },
-  lectureWarning: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 10, padding: 8, borderRadius: 8 },
-  lectureWarningText: { fontSize: 12, flex: 1 },
-  
-  quickActions: { flexDirection: "row", gap: 15, justifyContent: "center", marginTop: 10 },
-  quickBtn: { flexDirection: "row", alignItems: "center", gap: 4, padding: 8, borderRadius: 8 },
-  searchContainer: { flexDirection: "row", alignItems: "center", marginHorizontal: 15, marginTop: 15 },
-  searchIcon: { position: "absolute", left: 12, zIndex: 1 },
-  searchInput: { flex: 1, padding: 14, paddingLeft: 40, borderRadius: 12, fontSize: 14 },
-  section: { marginHorizontal: 15, marginTop: 20 },
-  sectionTitle: { fontSize: 18, fontWeight: "bold", marginBottom: 12 },
-  studentCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderRadius: 12, padding: 12, marginBottom: 8, elevation: 1 },
-  absentCard: { borderLeftWidth: 4, borderLeftColor: "#F44336" },
-  studentInfo: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  studentNumber: { width: 32, height: 32, borderRadius: 16, justifyContent: "center", alignItems: "center" },
-  studentNumberText: { fontSize: 12, fontWeight: "bold" },
-  studentName: { fontSize: 14, fontWeight: "600" },
-  studentSub: { fontSize: 11, marginTop: 1 },
-  btnRow: { flexDirection: "row", gap: 6 },
-  attendanceBtn: { width: 40, height: 40, borderRadius: 12, justifyContent: "center", alignItems: "center", borderWidth: 2 },
-  presentActive: { backgroundColor: "#4CAF50", borderColor: "#4CAF50" },
-  presentInactive: { backgroundColor: "#E8F5E9", borderColor: "#C8E6C9" },
-  absentActive: { backgroundColor: "#F44336", borderColor: "#F44336" },
-  absentInactive: { backgroundColor: "#FFEBEE", borderColor: "#FFCDD2" },
-  attendanceBtnText: { fontWeight: "bold", fontSize: 16 },
-  emptyContainer: { alignItems: "center", padding: 30, borderRadius: 16 },
-  emptyText: { fontSize: 14, marginTop: 8 },
-  saveAttendanceBtn: { marginHorizontal: 20, marginTop: 25, borderRadius: 15, overflow: "hidden", elevation: 3 },
-  saveGradient: { flexDirection: "row", alignItems: "center", justifyContent: "center", padding: 16, gap: 10 },
-  saveBtnText: { fontSize: 14, fontWeight: "bold", color: "#fff" },
-  
-  // View Modal
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end" },
-  viewModal: { borderTopLeftRadius: 25, borderTopRightRadius: 25, maxHeight: "90%" },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 20, borderTopLeftRadius: 25, borderTopRightRadius: 25 },
-  modalTitle: { fontSize: 18, fontWeight: "bold", color: "#fff" },
-  modalSubtitle: { fontSize: 12, color: "#fff", opacity: 0.9, marginTop: 2 },
-  modalBody: { padding: 20, maxHeight: "70%" },
-  
-  // Overall Stats
-  overallStatsCard: { padding: 15, borderRadius: 12, marginBottom: 10 },
-  overallTitle: { fontSize: 16, fontWeight: "bold", marginBottom: 12 },
-  overallStatsRow: { flexDirection: "row", justifyContent: "space-around" },
-  overallStat: { alignItems: "center" },
-  overallStatValue: { fontSize: 22, fontWeight: "bold" },
-  overallStatLabel: { fontSize: 11, marginTop: 2 },
-  
-  // Subject Cards
-  subjectCard: { padding: 12, borderRadius: 10, marginBottom: 8 },
-  subjectCardTitle: { fontSize: 14, fontWeight: "600", marginBottom: 8 },
-  subjectStatsRow: { flexDirection: "row", gap: 15 },
-  subjectStat: { alignItems: "center" },
-  subjectStatValue: { fontSize: 16, fontWeight: "bold" },
-  subjectStatLabel: { fontSize: 10, color: "#666" },
-  progressBar: { height: 6, borderRadius: 3, marginTop: 8, overflow: "hidden" },
-  progressFill: { height: "100%", borderRadius: 3 },
-  
-  // Records
-  recordCard: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 12, borderRadius: 10, marginBottom: 6 },
-  recordLeft: { flexDirection: "row", alignItems: "center", gap: 10, flex: 1 },
-  recordStatus: { width: 36, height: 36, borderRadius: 18, justifyContent: "center", alignItems: "center" },
-  recordSubject: { fontSize: 14, fontWeight: "500" },
-  recordDate: { fontSize: 11, marginTop: 2 },
-  recordStatusText: { fontSize: 12, fontWeight: "600" },
+  container: {
+    flex: 1,
+  },
+  loader: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loaderText: {
+    color: "#fff",
+    marginTop: 12,
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  headerGradient: {
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  headerSafeArea: {
+    paddingTop: 50,
+  },
+  headerContent: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  clearAllButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  headerTextContainer: {
+    alignItems: "center",
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: "rgba(255,255,255,0.8)",
+    marginTop: 4,
+  },
+  scrollView: {
+    flex: 1,
+    marginTop: -20,
+  },
+  summaryContainer: {
+    paddingHorizontal: 16,
+    marginTop: 20,
+  },
+  mainCard: {
+    borderRadius: 24,
+    padding: 20,
+    borderLeftWidth: 4,
+    backgroundColor: "#fff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  percentageContainer: {
+    alignItems: "center",
+    position: "relative",
+  },
+  percentageText: {
+    fontSize: 48,
+    fontWeight: "bold",
+  },
+  percentageCircle: {
+    height: 4,
+    borderRadius: 2,
+    marginTop: 8,
+  },
+  attendanceStatus: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#666",
+    textAlign: "center",
+    marginTop: 12,
+  },
+  statsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 16,
+    gap: 12,
+  },
+  statCard: {
+    flex: 1,
+    borderRadius: 16,
+    padding: 16,
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  statNumber: {
+    fontSize: 24,
+    fontWeight: "bold",
+    marginTop: 8,
+  },
+  statLabel: {
+    fontSize: 12,
+    marginTop: 4,
+  },
+  filterSection: {
+    paddingHorizontal: 16,
+    marginTop: 24,
+  },
+  filterGroup: {
+    marginBottom: 20,
+  },
+  filterHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+  filterTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  subjectCount: {
+    fontSize: 12,
+  },
+  dropdownButton: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  dropdownButtonText: {
+    fontSize: 16,
+  },
+  dateFilterContainer: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  dateButton: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  dateButtonText: {
+    fontSize: 16,
+  },
+  clearButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#F44336",
+  },
+  clearButtonText: {
+    color: "#F44336",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  sortButtonsContainer: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  sortButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "transparent",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  sortButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  activeFilters: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E0E0E0",
+  },
+  activeFiltersTitle: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  filterChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  recordsSection: {
+    paddingHorizontal: 16,
+    marginTop: 24,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    flex: 1,
+  },
+  recordCount: {
+    fontSize: 12,
+  },
+  emptyState: {
+    borderRadius: 16,
+    padding: 48,
+    alignItems: "center",
+  },
+  emptyText: {
+    marginTop: 16,
+    fontSize: 16,
+    textAlign: "center",
+  },
+  resetButton: {
+    marginTop: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  resetButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  recordCard: {
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  recordHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  subjectIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#6B4EFF20",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  subjectInitial: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#6B4EFF",
+  },
+  recordInfo: {
+    flex: 1,
+  },
+  subjectName: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  lectureInfo: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  recordFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E0E0E0",
+  },
+  dateText: {
+    fontSize: 12,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: width * 0.9,
+    maxHeight: height * 0.7,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  searchText: {
+    fontSize: 14,
+  },
+  modalScroll: {
+    maxHeight: height * 0.6,
+  },
+  modalItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  modalItemText: {
+    fontSize: 16,
+  },
+  modalItemSubtext: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  datePickerModal: {
+    width: width * 0.9,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  datePicker: {
+    height: 200,
+  },
 });

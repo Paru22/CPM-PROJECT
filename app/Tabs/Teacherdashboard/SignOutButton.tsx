@@ -1,50 +1,47 @@
-import React from "react";
+import React, { useState } from "react";
 import { TouchableOpacity, Text, StyleSheet, Alert, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
-import { signOut } from "firebase/auth";
-import { auth } from "../../../config/firebaseConfig.native";
+import { useAuth } from "../../../context/AuthContext";
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
 
 export default function SignOutButton() {
   const router = useRouter();
+  const { logout } = useAuth(); // Use AuthContext logout
   const [loading, setLoading] = useState(false);
 
   const handleSignOut = () => {
-    Alert.alert(
-      "Confirm Logout",
-      "Are you sure you want to logout?",
-      [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
-        {
-          text: "Logout",
-          style: "destructive",
-          onPress: async () => {
-            setLoading(true);
-            try {
-              // Sign out from Firebase Auth
-              await signOut(auth);
-              
-              // Clear any additional stored user data if needed
-              // await AsyncStorage.removeItem('userData'); // Uncomment if using AsyncStorage
-              
-              // Redirect to login page
-              // Using replace to prevent going back to previous screen
-              router.replace("/Login/teacherlogin");
-            } catch (error) {
-              console.error("Sign out error:", error);
-              Alert.alert("Error", "Failed to sign out. Please try again.");
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  };
+  Alert.alert(
+    "Confirm Logout",
+    "Are you sure you want to logout?",
+    [
+      {
+        text: "Cancel",
+        style: "cancel",
+      },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          setLoading(true);
 
+          try {
+            await logout();
+
+          } catch (error) {
+            console.error("Sign out error:", error);
+
+            Alert.alert(
+              "Error",
+              "Failed to sign out. Please try again."
+            );
+          } finally {
+            setLoading(false);
+          }
+        },
+      },
+    ]
+  );
+};
   return (
     <TouchableOpacity 
       style={[styles.button, loading && styles.buttonDisabled]} 

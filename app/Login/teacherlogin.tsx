@@ -15,13 +15,44 @@ import {
   View,
   Animated,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
+
+const AUTH_CREDENTIALS_KEY = "@cpm_auth_credentials";
+
+// Helper function to determine dashboard path based on role
+const getDashboardPath = (userData: any): string => {
+  console.log("Getting dashboard for role:", userData.role);
+  
+  // HOD
+  if (userData.role === "hod") {
+    return "/Tabs/Teacherdashboard/HODdashboard";
+  }
+  
+  // Check teacherRoles array
+  const teacherRoles = userData.teacherRoles || [];
+  const isClassTeacher = teacherRoles.some((role: any) => role.type === "class_teacher");
+  const isLabIncharge = teacherRoles.some((role: any) => role.type === "lab_incharge");
+  
+  // Class Teacher Dashboard
+  if (isClassTeacher) {
+    return "/Tabs/Teacherdashboard/ClassTeacherDashboard";
+  }
+  
+  // Lab Dashboard
+  if (isLabIncharge) {
+    return "/Tabs/Teacherdashboard/LabInchargeDashboard";
+  }
+  
+  // Default Teacher Dashboard
+  return "/Tabs/Teacherdashboard/Teacherdashboard";
+};
 
 export default function TeacherLogin() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { login, user } = useAuth();
+  const { login, user, loading: authLoading } = useAuth();
   
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,6 +62,27 @@ export default function TeacherLogin() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
 
+  // ✅ Clear student credentials on mount to prevent auto-login
+  useEffect(() => {
+    const clearStudentCredentials = async () => {
+      try {
+        const credJson = await AsyncStorage.getItem(AUTH_CREDENTIALS_KEY);
+        if (credJson) {
+          const cred = JSON.parse(credJson);
+          if (cred.type === "student") {
+            console.log("Clearing student credentials before teacher login");
+            await AsyncStorage.removeItem(AUTH_CREDENTIALS_KEY);
+          }
+        }
+      } catch (error) {
+        console.error("Error clearing credentials:", error);
+      }
+    };
+    
+    clearStudentCredentials();
+  }, []);
+
+  // Animation
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
@@ -38,28 +90,22 @@ export default function TeacherLogin() {
     ]).start();
   }, []);
 
-  // Role-based redirect after login
+  // Reset form
   useEffect(() => {
-    if (user) {
-      const dashboardPath = getDashboardPath(user);
-      router.replace(dashboardPath as any);
-    }
-  }, [user]);
+    setEmail("");
+    setPassword("");
+  }, []);
 
-  const getDashboardPath = (userData: any): string => {
-    // HOD
-    if (userData.role === "hod") {
-      return "/Tabs/Teacherdashboard/HODdashboard";
+  // Redirect after login
+  useEffect(() => {
+    if (user && !authLoading) {
+      const dashboardPath = getDashboardPath(user);
+      console.log("Redirecting teacher to:", dashboardPath);
+      setTimeout(() => {
+        router.replace(dashboardPath as any);
+      }, 100);
     }
-    
-    // Class Teacher
-    if (userData.teacherRoles?.some((r: any) => r.type === "class_teacher")) {
-      return "/Tabs/Teacherdashboard/ClassTeacherDashboard";
-    }
-    
-    // Regular Subject Teacher
-    return "/Tabs/Teacherdashboard/Teacherdashboard";
-  };
+  }, [user, authLoading, router]);
 
   const handleLogin = async () => {
     if (!email.trim() || !password.trim()) {
@@ -82,6 +128,10 @@ export default function TeacherLogin() {
         Alert.alert("Pending Approval", "Your account is pending approval. Please wait for HOD to approve.");
       } else if (message.includes("rejected")) {
         Alert.alert("Rejected", "Your account has been rejected. Please contact HOD.");
+      } else if (message.includes("user-not-found")) {
+        Alert.alert("Login Failed", "No account found with this email. Please register first.");
+      } else if (message.includes("wrong-password")) {
+        Alert.alert("Login Failed", "Incorrect password. Please try again.");
       } else {
         Alert.alert("Login Failed", message);
       }
@@ -94,25 +144,65 @@ export default function TeacherLogin() {
     router.push("/Login/TeacherSignup");
   };
 
+  if (authLoading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
   return (
     <KeyboardAvoidingView 
       style={[styles.container, { backgroundColor: colors.background }]} 
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer} showsVerticalScrollIndicator={false}>
-        <Animated.View style={[styles.contentContainer, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
-          
+      <ScrollView 
+        contentContainerStyle={styles.scrollContainer} 
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Animated.View 
+          style={[
+            styles.contentContainer, 
+            { 
+              opacity: fadeAnim, 
+              transform: [{ translateY: slideAnim }] 
+            }
+          ]}
+        >
+          {/* Logo Section */}
           <View style={styles.logoSection}>
-            <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.logoGradient}>
+            <LinearGradient 
+              colors={[colors.primary, colors.secondary]} 
+              style={styles.logoGradient}
+            >
               <Ionicons name="school-outline" size={50} color="#fff" />
             </LinearGradient>
-            <Text style={[styles.appName, { color: colors.textDark }]}>Teacher Portal</Text>
-            <Text style={[styles.appTagline, { color: colors.textLight }]}>Sign in to access your dashboard</Text>
+            <Text style={[styles.appName, { color: colors.textDark }]}>
+              Teacher Portal
+            </Text>
+            <Text style={[styles.appTagline, { color: colors.textLight }]}>
+              Sign in to access your dashboard
+            </Text>
           </View>
 
+          {/* Form Section */}
           <View style={[styles.formSection, { backgroundColor: colors.card }]}>
-            <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
-              <Ionicons name="mail-outline" size={20} color={colors.primary} style={styles.inputIcon} />
+            {/* Email Input */}
+            <View style={[
+              styles.inputContainer, 
+              { 
+                backgroundColor: colors.background, 
+                borderColor: colors.border 
+              }
+            ]}>
+              <Ionicons 
+                name="mail-outline" 
+                size={20} 
+                color={colors.primary} 
+                style={styles.inputIcon} 
+              />
               <TextInput
                 style={[styles.input, { color: colors.textDark }]}
                 placeholder="Email Address"
@@ -122,11 +212,24 @@ export default function TeacherLogin() {
                 autoCapitalize="none"
                 keyboardType="email-address"
                 editable={!loading}
+                returnKeyType="next"
               />
             </View>
 
-            <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
-              <Ionicons name="lock-closed-outline" size={20} color={colors.primary} style={styles.inputIcon} />
+            {/* Password Input */}
+            <View style={[
+              styles.inputContainer, 
+              { 
+                backgroundColor: colors.background, 
+                borderColor: colors.border 
+              }
+            ]}>
+              <Ionicons 
+                name="lock-closed-outline" 
+                size={20} 
+                color={colors.primary} 
+                style={styles.inputIcon} 
+              />
               <TextInput
                 style={[styles.input, { color: colors.textDark }]}
                 placeholder="Password"
@@ -135,26 +238,44 @@ export default function TeacherLogin() {
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
                 editable={!loading}
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
               />
-              <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
-                <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textLight} />
+              <TouchableOpacity 
+                onPress={() => setShowPassword(!showPassword)} 
+                style={styles.eyeIcon}
+              >
+                <Ionicons 
+                  name={showPassword ? "eye-off-outline" : "eye-outline"} 
+                  size={20} 
+                  color={colors.textLight} 
+                />
               </TouchableOpacity>
             </View>
 
+            {/* Forgot Password */}
             <TouchableOpacity 
               onPress={() => router.push("/Login/forgotPassword")} 
               style={styles.forgotPasswordContainer}
             >
-              <Text style={[styles.forgotPasswordText, { color: colors.primary }]}>Forgot Password?</Text>
+              <Text style={[styles.forgotPasswordText, { color: colors.primary }]}>
+                Forgot Password?
+              </Text>
             </TouchableOpacity>
 
+            {/* Login Button */}
             <TouchableOpacity
               style={[styles.loginButton, loading && styles.loginButtonDisabled]}
               onPress={handleLogin}
               disabled={loading}
               activeOpacity={0.8}
             >
-              <LinearGradient colors={[colors.primary, colors.secondary]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.loginGradient}>
+              <LinearGradient 
+                colors={[colors.primary, colors.secondary]} 
+                start={{ x: 0, y: 0 }} 
+                end={{ x: 1, y: 0 }} 
+                style={styles.loginGradient}
+              >
                 {loading ? (
                   <ActivityIndicator color="#fff" />
                 ) : (
@@ -166,21 +287,32 @@ export default function TeacherLogin() {
               </LinearGradient>
             </TouchableOpacity>
 
+            {/* Divider */}
             <View style={styles.divider}>
               <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
               <Text style={[styles.dividerText, { color: colors.textLight }]}>or</Text>
               <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
             </View>
 
+            {/* Sign Up Button */}
             <TouchableOpacity 
-              style={[styles.signUpButton, { backgroundColor: colors.background, borderColor: colors.border }]} 
+              style={[
+                styles.signUpButton, 
+                { 
+                  backgroundColor: colors.background, 
+                  borderColor: colors.border 
+                }
+              ]} 
               onPress={navigateToSignUp} 
               activeOpacity={0.8}
             >
               <Ionicons name="person-add-outline" size={20} color={colors.primary} />
-              <Text style={[styles.signUpButtonText, { color: colors.primary }]}>New Teacher? Register Here</Text>
+              <Text style={[styles.signUpButtonText, { color: colors.primary }]}>
+                New Teacher? Register Here
+              </Text>
             </TouchableOpacity>
             
+            {/* Info Text */}
             <Text style={[styles.infoText, { color: colors.textLight }]}>
               New teacher registrations require HOD approval before you can log in.
             </Text>
@@ -193,13 +325,14 @@ export default function TeacherLogin() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   scrollContainer: { flexGrow: 1, justifyContent: "center" },
   contentContainer: { flex: 1, justifyContent: "center", paddingHorizontal: 24, paddingVertical: 40 },
   logoSection: { alignItems: "center", marginBottom: 40 },
   logoGradient: { width: 90, height: 90, borderRadius: 45, justifyContent: "center", alignItems: "center", marginBottom: 20, elevation: 8 },
   appName: { fontSize: 28, fontWeight: "bold", marginBottom: 8 },
   appTagline: { fontSize: 14, textAlign: "center" },
-  formSection: { padding: 24, borderRadius: 20, elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 8 },
+  formSection: { padding: 24, borderRadius: 20, elevation: 3 },
   inputContainer: { flexDirection: "row", alignItems: "center", borderRadius: 12, marginBottom: 16, paddingHorizontal: 16, borderWidth: 1 },
   inputIcon: { marginRight: 12 },
   input: { flex: 1, paddingVertical: 14, fontSize: 15 },

@@ -12,9 +12,10 @@ import {
   TouchableOpacity,
   View,
   Dimensions,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Picker } from "@react-native-picker/picker";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -23,7 +24,6 @@ import Animated, {
   ZoomIn,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
-import { BlurView } from "expo-blur";
 import { Ionicons } from "@expo/vector-icons";
 import { db } from "../../../../config/firebaseConfig.native";
 import { useTheme } from "../../../../context/ThemeContext";
@@ -40,6 +40,15 @@ interface AttendanceItem {
   status: string;
 }
 
+interface Subject {
+  id: string;
+  subjectName: string;
+  subjectCode?: string;
+  [key: string]: any;
+}
+
+type SortOption = "newest" | "oldest";
+
 export default function AttendancePage() {
   const router = useRouter();
   const { colors } = useTheme();
@@ -50,22 +59,72 @@ export default function AttendancePage() {
   // ================= STATES =================
   const [attendanceData, setAttendanceData] = useState<AttendanceItem[]>([]);
   const [filteredData, setFilteredData] = useState<AttendanceItem[]>([]);
-  const [subjects, setSubjects] = useState<string[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [selectedSubject, setSelectedSubject] = useState("All");
+  const [sortOption, setSortOption] = useState<SortOption>("newest");
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Date filter states
+  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [dateFilterModal, setDateFilterModal] = useState(false);
+  
+  // Subject dropdown modal
+  const [showSubjectDropdown, setShowSubjectDropdown] = useState(false);
+
+  // ================= SORT FUNCTION =================
+  const sortAttendanceData = (data: AttendanceItem[], sortBy: SortOption) => {
+    const sorted = [...data];
+    if (sortBy === "newest") {
+      sorted.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    } else {
+      sorted.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    }
+    return sorted;
+  };
+
+  // ================= FETCH SUBJECTS =================
+  const fetchSubjects = async () => {
+    try {
+      const subjectsRef = collection(db, "subjects");
+      const snapshot = await getDocs(subjectsRef);
+      let subjectsList: Subject[] = [];
+      
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        subjectsList.push({
+          id: doc.id,
+          subjectName: data.subjectName || "Unknown Subject",
+          subjectCode: data.subjectCode || "",
+          ...data,
+        });
+      });
+      
+      // Sort subjects alphabetically
+      subjectsList.sort((a, b) => a.subjectName.localeCompare(b.subjectName));
+      setSubjects(subjectsList);
+      
+      return subjectsList;
+    } catch (error) {
+      console.log("Error fetching subjects:", error);
+      Alert.alert("Error", "Failed to fetch subjects list");
+      return [];
+    }
+  };
 
   // ================= FETCH ATTENDANCE =================
   const fetchAttendance = async () => {
     try {
       setLoading(true);
+      
+      // Fetch attendance records
       const q = query(
         collection(db, "attendance"),
         where("studentId", "==", studentId)
       );
       const snapshot = await getDocs(q);
       let temp: AttendanceItem[] = [];
-      let subjectSet = new Set<string>();
 
       snapshot.forEach((docSnap) => {
         const data = docSnap.data();
@@ -77,16 +136,13 @@ export default function AttendancePage() {
           lectureNo: data.lectureNo || 1,
           status: data.status || "absent",
         });
-        subjectSet.add(data.subjectName);
       });
 
-      temp.sort(
-        (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-      );
+      // Sort by newest first initially
+      temp.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
       setAttendanceData(temp);
       setFilteredData(temp);
-      setSubjects(["All", ...Array.from(subjectSet)]);
     } catch (error) {
       console.log(error);
       Alert.alert("Error", "Failed to fetch attendance");
@@ -95,28 +151,67 @@ export default function AttendancePage() {
     }
   };
 
+  // ================= FETCH ALL DATA =================
+  const fetchAllData = async () => {
+    setLoading(true);
+    await Promise.all([fetchSubjects(), fetchAttendance()]);
+    setLoading(false);
+  };
+
   // ================= INITIAL LOAD =================
   useEffect(() => {
-    fetchAttendance();
+    fetchAllData();
   }, []);
 
   // ================= REFRESH =================
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await fetchAttendance();
+    await fetchAllData();
     setRefreshing(false);
   }, []);
 
-  // ================= FILTER =================
+  // ================= FILTER, SORT, AND DATE FILTER =================
   useEffect(() => {
-    if (selectedSubject === "All") {
-      setFilteredData(attendanceData);
-    } else {
-      setFilteredData(
-        attendanceData.filter((item) => item.subjectName === selectedSubject)
-      );
+    let result = [...attendanceData];
+    
+    // Apply subject filter
+    if (selectedSubject !== "All") {
+      result = result.filter((item) => item.subjectName === selectedSubject);
     }
-  }, [selectedSubject, attendanceData]);
+    
+    // Apply date filter
+    if (selectedDate) {
+      const dateString = selectedDate.toISOString().split('T')[0];
+      result = result.filter((item) => item.date === dateString);
+    }
+    
+    // Apply sorting
+    result = sortAttendanceData(result, sortOption);
+    
+    setFilteredData(result);
+  }, [selectedSubject, attendanceData, sortOption, selectedDate]);
+
+  // ================= CLEAR DATE FILTER =================
+  const clearDateFilter = () => {
+    setSelectedDate(null);
+    setDateFilterModal(false);
+  };
+
+  // ================= CLEAR ALL FILTERS =================
+  const clearAllFilters = () => {
+    setSelectedSubject("All");
+    setSelectedDate(null);
+    setSortOption("newest");
+  };
+
+  // ================= HANDLE DATE CHANGE =================
+  const onDateChange = (event: any, date?: Date) => {
+    setShowDatePicker(false);
+    if (date) {
+      setSelectedDate(date);
+      setDateFilterModal(false);
+    }
+  };
 
   // ================= CALCULATIONS =================
   const totalClasses = filteredData.length;
@@ -126,6 +221,9 @@ export default function AttendancePage() {
   const absentClasses = totalClasses - presentClasses;
   const percentage = totalClasses > 0 ? (presentClasses / totalClasses) * 100 : 0;
   const percentageColor = percentage >= 75 ? "#4CAF50" : percentage >= 50 ? "#FF9800" : "#F44336";
+
+  // Get unique subjects from attendance data for filter options
+  const attendanceSubjects = ["All", ...new Set(attendanceData.map(item => item.subjectName))];
 
   // ================= LOADING =================
   if (loading) {
@@ -163,7 +261,9 @@ export default function AttendancePage() {
               <Text style={styles.headerTitle}>Attendance Overview</Text>
               <Text style={styles.headerSubtitle}>Track your academic progress</Text>
             </View>
-            <View style={styles.placeholderIcon} />
+            <TouchableOpacity onPress={clearAllFilters} style={styles.clearAllButton}>
+              <Ionicons name="refresh-circle" size={28} color="#fff" />
+            </TouchableOpacity>
           </Animated.View>
         </SafeAreaView>
       </LinearGradient>
@@ -225,29 +325,146 @@ export default function AttendancePage() {
 
         {/* Filter Section */}
         <Animated.View entering={FadeInUp.delay(400)} style={styles.filterSection}>
-          <View style={styles.filterHeader}>
-            <Ionicons name="filter" size={22} color={colors.primary} />
-            <Text style={[styles.filterTitle, { color: colors.textDark }]}>Filter by Subject</Text>
-          </View>
-          <View style={[styles.pickerContainer, { borderColor: colors.border, backgroundColor: colors.card }]}>
-            <Picker
-              selectedValue={selectedSubject}
-              onValueChange={(value) => setSelectedSubject(value)}
-              dropdownIconColor={colors.primary}
-              style={[styles.picker, { color: colors.textDark }]}
+          {/* Subject Filter Dropdown */}
+          <View style={styles.filterGroup}>
+            <View style={styles.filterHeader}>
+              <Ionicons name="book-outline" size={22} color={colors.primary} />
+              <Text style={[styles.filterTitle, { color: colors.textDark }]}>Filter by Subject</Text>
+              {subjects.length > 0 && (
+                <Text style={[styles.subjectCount, { color: colors.textLight }]}>
+                  ({subjects.length} subjects available)
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[styles.dropdownButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+              onPress={() => setShowSubjectDropdown(true)}
             >
-              {subjects.map((sub) => (
-                <Picker.Item key={sub} label={sub} value={sub} />
-              ))}
-            </Picker>
+              <Text style={[styles.dropdownButtonText, { color: colors.textDark }]}>
+                {selectedSubject}
+              </Text>
+              <Ionicons name="chevron-down" size={20} color={colors.textLight} />
+            </TouchableOpacity>
           </View>
+
+          {/* Date Filter */}
+          <View style={styles.filterGroup}>
+            <View style={styles.filterHeader}>
+              <Ionicons name="calendar-outline" size={22} color={colors.primary} />
+              <Text style={[styles.filterTitle, { color: colors.textDark }]}>Filter by Date</Text>
+            </View>
+            <View style={styles.dateFilterContainer}>
+              <TouchableOpacity
+                style={[styles.dateButton, { backgroundColor: colors.card, borderColor: colors.border }]}
+                onPress={() => setDateFilterModal(true)}
+              >
+                <Ionicons name="calendar" size={20} color={colors.primary} />
+                <Text style={[styles.dateButtonText, { color: colors.textDark }]}>
+                  {selectedDate ? selectedDate.toLocaleDateString() : "Select Date"}
+                </Text>
+              </TouchableOpacity>
+              {selectedDate && (
+                <TouchableOpacity
+                  style={[styles.clearButton, { backgroundColor: colors.card }]}
+                  onPress={clearDateFilter}
+                >
+                  <Ionicons name="close-circle" size={20} color="#F44336" />
+                  <Text style={styles.clearButtonText}>Clear</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          {/* Sort Options */}
+          <View style={styles.filterGroup}>
+            <View style={styles.filterHeader}>
+              <Ionicons name="swap-vertical" size={22} color={colors.primary} />
+              <Text style={[styles.filterTitle, { color: colors.textDark }]}>Sort by Date</Text>
+            </View>
+            <View style={styles.sortButtonsContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.sortButton,
+                  { backgroundColor: colors.card },
+                  sortOption === "newest" && { backgroundColor: colors.primary }
+                ]}
+                onPress={() => setSortOption("newest")}
+              >
+                <Ionicons 
+                  name="arrow-down" 
+                  size={18} 
+                  color={sortOption === "newest" ? "#fff" : colors.textDark} 
+                />
+                <Text 
+                  style={[
+                    styles.sortButtonText, 
+                    { color: sortOption === "newest" ? "#fff" : colors.textDark }
+                  ]}
+                >
+                  Newest First
+                </Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[
+                  styles.sortButton,
+                  { backgroundColor: colors.card },
+                  sortOption === "oldest" && { backgroundColor: colors.primary }
+                ]}
+                onPress={() => setSortOption("oldest")}
+              >
+                <Ionicons 
+                  name="arrow-up" 
+                  size={18} 
+                  color={sortOption === "oldest" ? "#fff" : colors.textDark} 
+                />
+                <Text 
+                  style={[
+                    styles.sortButtonText, 
+                    { color: sortOption === "oldest" ? "#fff" : colors.textDark }
+                  ]}
+                >
+                  Oldest First
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Active Filters Display */}
+          {(selectedSubject !== "All" || selectedDate) && (
+            <View style={styles.activeFilters}>
+              <Text style={[styles.activeFiltersTitle, { color: colors.textLight }]}>Active Filters:</Text>
+              <View style={styles.filterChips}>
+                {selectedSubject !== "All" && (
+                  <View style={[styles.filterChip, { backgroundColor: colors.primary + "20" }]}>
+                    <Ionicons name="book" size={14} color={colors.primary} />
+                    <Text style={[styles.filterChipText, { color: colors.primary }]}>{selectedSubject}</Text>
+                    <TouchableOpacity onPress={() => setSelectedSubject("All")}>
+                      <Ionicons name="close-circle" size={16} color={colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+                {selectedDate && (
+                  <View style={[styles.filterChip, { backgroundColor: colors.primary + "20" }]}>
+                    <Ionicons name="calendar" size={14} color={colors.primary} />
+                    <Text style={[styles.filterChipText, { color: colors.primary }]}>
+                      {selectedDate.toLocaleDateString()}
+                    </Text>
+                    <TouchableOpacity onPress={clearDateFilter}>
+                      <Ionicons name="close-circle" size={16} color={colors.primary} />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
         </Animated.View>
 
         {/* Records Section */}
         <Animated.View entering={FadeInUp.delay(600)} style={styles.recordsSection}>
           <View style={styles.sectionHeader}>
             <Ionicons name="time" size={22} color={colors.primary} />
-            <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Recent Records</Text>
+            <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Records</Text>
             <Text style={[styles.recordCount, { color: colors.textLight }]}>{filteredData.length} entries</Text>
           </View>
 
@@ -255,6 +472,11 @@ export default function AttendancePage() {
             <View style={[styles.emptyState, { backgroundColor: colors.card }]}>
               <Ionicons name="calendar-outline" size={64} color={colors.textLight} />
               <Text style={[styles.emptyText, { color: colors.textLight }]}>No attendance records found</Text>
+              {(selectedSubject !== "All" || selectedDate) && (
+                <TouchableOpacity onPress={clearAllFilters} style={styles.resetButton}>
+                  <Text style={[styles.resetButtonText, { color: colors.primary }]}>Clear all filters</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ) : (
             filteredData.map((item, index) => (
@@ -336,6 +558,114 @@ export default function AttendancePage() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Subject Dropdown Modal */}
+      <Modal
+        visible={showSubjectDropdown}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowSubjectDropdown(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSubjectDropdown(false)}
+        >
+          <View style={[styles.modalContent, { backgroundColor: colors.card }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Select Subject</Text>
+              <TouchableOpacity onPress={() => setShowSubjectDropdown(false)}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Search input for subjects */}
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={20} color={colors.textLight} />
+              <Text style={[styles.searchText, { color: colors.textLight }]}>
+                {subjects.length} subjects loaded from database
+              </Text>
+            </View>
+            
+            <ScrollView style={styles.modalScroll}>
+              <TouchableOpacity
+                style={[
+                  styles.modalItem,
+                  selectedSubject === "All" && { backgroundColor: colors.primary + "20" }
+                ]}
+                onPress={() => {
+                  setSelectedSubject("All");
+                  setShowSubjectDropdown(false);
+                }}
+              >
+                <Text style={[styles.modalItemText, { color: colors.textDark }]}>All Subjects</Text>
+                {selectedSubject === "All" && (
+                  <Ionicons name="checkmark" size={20} color={colors.primary} />
+                )}
+              </TouchableOpacity>
+              
+              {subjects.map((subject) => (
+                <TouchableOpacity
+                  key={subject.id}
+                  style={[
+                    styles.modalItem,
+                    selectedSubject === subject.subjectName && { backgroundColor: colors.primary + "20" }
+                  ]}
+                  onPress={() => {
+                    setSelectedSubject(subject.subjectName);
+                    setShowSubjectDropdown(false);
+                  }}
+                >
+                  <View>
+                    <Text style={[styles.modalItemText, { color: colors.textDark }]}>
+                      {subject.subjectName}
+                    </Text>
+                    {subject.subjectCode && (
+                      <Text style={[styles.modalItemSubtext, { color: colors.textLight }]}>
+                        {subject.subjectCode}
+                      </Text>
+                    )}
+                  </View>
+                  {selectedSubject === subject.subjectName && (
+                    <Ionicons name="checkmark" size={20} color={colors.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Date Picker Modal */}
+      <Modal
+        visible={dateFilterModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setDateFilterModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setDateFilterModal(false)}
+        >
+          <View style={[styles.datePickerModal, { backgroundColor: colors.card }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: colors.textDark }]}>Select Date</Text>
+              <TouchableOpacity onPress={() => setDateFilterModal(false)}>
+                <Ionicons name="close" size={24} color={colors.textDark} />
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={selectedDate || new Date()}
+              mode="date"
+              display="spinner"
+              onChange={onDateChange}
+              style={styles.datePicker}
+              textColor={colors.textDark}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -383,6 +713,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  clearAllButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   headerTextContainer: {
     alignItems: "center",
   },
@@ -395,9 +733,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "rgba(255,255,255,0.8)",
     marginTop: 4,
-  },
-  placeholderIcon: {
-    width: 40,
   },
   scrollView: {
     flex: 1,
@@ -468,6 +803,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginTop: 24,
   },
+  filterGroup: {
+    marginBottom: 20,
+  },
   filterHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -478,13 +816,105 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  pickerContainer: {
+  subjectCount: {
+    fontSize: 12,
+  },
+  dropdownButton: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     borderWidth: 1,
     borderRadius: 12,
-    overflow: "hidden",
   },
-  picker: {
-    height: 50,
+  dropdownButtonText: {
+    fontSize: 16,
+  },
+  dateFilterContainer: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  dateButton: {
+    flex: 2,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderRadius: 12,
+  },
+  dateButtonText: {
+    fontSize: 16,
+  },
+  clearButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#F44336",
+  },
+  clearButtonText: {
+    color: "#F44336",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  sortButtonsContainer: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  sortButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "transparent",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  sortButtonText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  activeFilters: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#E0E0E0",
+  },
+  activeFiltersTitle: {
+    fontSize: 14,
+    marginBottom: 8,
+  },
+  filterChips: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  filterChipText: {
+    fontSize: 14,
+    fontWeight: "500",
   },
   recordsSection: {
     paddingHorizontal: 16,
@@ -512,6 +942,16 @@ const styles = StyleSheet.create({
   emptyText: {
     marginTop: 16,
     fontSize: 16,
+    textAlign: "center",
+  },
+  resetButton: {
+    marginTop: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  resetButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   recordCard: {
     borderRadius: 16,
@@ -575,5 +1015,69 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 12,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    width: width * 0.9,
+    maxHeight: height * 0.7,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  searchText: {
+    fontSize: 14,
+  },
+  modalScroll: {
+    maxHeight: height * 0.6,
+  },
+  modalItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E0E0E0",
+  },
+  modalItemText: {
+    fontSize: 16,
+  },
+  modalItemSubtext: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  datePickerModal: {
+    width: width * 0.9,
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  datePicker: {
+    height: 200,
   },
 });

@@ -72,7 +72,7 @@ interface StudentRequest {
 export default function ClassTeacherDashboard() {
   const router = useRouter();
   const { colors, theme, toggleTheme } = useTheme();
-  const { user } = useAuth();
+  const { user, logout } = useAuth(); // ✅ Get logout from AuthContext
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -103,7 +103,7 @@ export default function ClassTeacherDashboard() {
     ]).start();
   }, [fadeAnim, slideAnim]);
 
-  // Navigation functions - FIXED
+  // Navigation functions
   const navigateToAttendance = () => {
     router.push("/Tabs/Teacherdashboard/Attendence");
   };
@@ -124,6 +124,7 @@ export default function ClassTeacherDashboard() {
     router.push("/Tabs/Teacherdashboard/Students");
   };
 
+  // ✅ FIXED: Use AuthContext logout instead of direct auth.signOut()
   const handleLogout = async () => {
     Alert.alert(
       "Logout",
@@ -135,10 +136,11 @@ export default function ClassTeacherDashboard() {
           style: "destructive",
           onPress: async () => {
             try {
-              await auth.signOut();
+              await logout(); // ✅ Use AuthContext logout
               router.replace("/");
             } catch (err) {
               console.error("Logout error:", err);
+              Alert.alert("Error", "Failed to logout. Please try again.");
             }
           }
         }
@@ -514,7 +516,7 @@ export default function ClassTeacherDashboard() {
           )}
         </View>
 
-        {/* Grid Buttons - FIXED NAVIGATION */}
+        {/* Grid Buttons */}
         <View style={styles.grid}>
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: colors.primary }]}
@@ -526,7 +528,7 @@ export default function ClassTeacherDashboard() {
 
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: colors.primary }]}
-            onPress={navigateToStudentRequests}
+            onPress={() => setShowRequestsModal(true)}
           >
             <Ionicons name="notifications-outline" size={28} color="#fff" />
             <Text style={styles.btnText}>Requests</Text>
@@ -547,7 +549,7 @@ export default function ClassTeacherDashboard() {
 
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: colors.primary }]}
-            onPress={navigateToStudents}
+            onPress={() => setShowStudentsModal(true)}
           >
             <Ionicons name="people-outline" size={28} color="#fff" />
             <Text style={styles.btnText}>Students</Text>

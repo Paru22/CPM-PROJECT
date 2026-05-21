@@ -1,34 +1,70 @@
 import { initializeApp } from "firebase/app";
+
 import {
   initializeAuth,
   browserLocalPersistence,
-  Auth,
+  getAuth,
+  type Auth,
 } from "firebase/auth";
+
 import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";  // ✅ ADD THIS IMPORT
+
+import { getStorage } from "firebase/storage";
+
 import { Platform } from "react-native";
 
+// ================= FIREBASE CONFIG =================
+
 const firebaseConfig = {
-  apiKey: "AIzaSyB3aM19r5DSNKsF7xr_AxWcULuCAmlYnUM",
-  authDomain: "colg-app-3ac3b.firebaseapp.com",
-  projectId: "colg-app-3ac3b",
-  storageBucket: "colg-app-3ac3b.firebasestorage.app",
-  messagingSenderId: "519153632329",
-  appId: "1:519153632329:web:a48b50d752b834358cab98",
+  apiKey:
+    "AIzaSyB3aM19r5DSNKsF7xr_AxWcULuCAmlYnUM",
+
+  authDomain:
+    "colg-app-3ac3b.firebaseapp.com",
+
+  projectId:
+    "colg-app-3ac3b",
+
+  storageBucket:
+    "colg-app-3ac3b.appspot.com",
+
+  messagingSenderId:
+    "519153632329",
+
+  appId:
+    "1:519153632329:web:a48b50d752b834358cab98",
 };
+
+// ================= INITIALIZE APP =================
 
 const app = initializeApp(firebaseConfig);
 
-const auth: Auth = Platform.OS === "web"
-  ? initializeAuth(app, { persistence: browserLocalPersistence })
-  : (() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { getReactNativePersistence } = require("firebase/auth");
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const AsyncStorage = require("@react-native-async-storage/async-storage").default;
-      return initializeAuth(app, { persistence: getReactNativePersistence(AsyncStorage) });
-    })();
+// ================= AUTH =================
 
-export const db = getFirestore(app);
-export const storage = getStorage(app);  // ✅ ADD THIS EXPORT
-export { auth, app };
+let auth: Auth;
+
+if (Platform.OS === "web") {
+  auth = initializeAuth(app, {
+    persistence:
+      browserLocalPersistence,
+  });
+} else {
+  auth = getAuth(app);
+}
+
+// ================= FIRESTORE =================
+
+const db = getFirestore(app);
+
+// ================= STORAGE =================
+
+const storage = getStorage(app);
+
+// ================= EXPORTS =================
+
+export {
+  app,
+  auth,
+  db,
+  storage,
+};

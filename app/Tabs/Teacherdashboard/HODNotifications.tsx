@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -12,7 +12,16 @@ import {
     View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { collection, doc, getDocs, setDoc, updateDoc, query, where } from "firebase/firestore";
+import {
+  collection,
+  doc,
+  getDocs,
+  setDoc,
+  updateDoc,
+  query,
+  where,
+  serverTimestamp,
+} from "firebase/firestore";
 
 import { db } from "../../../config/firebaseConfig.native";
 import { useTheme } from "../../../context/ThemeContext";
@@ -22,9 +31,9 @@ interface TeacherRequest {
   id: string;
   teacherId?: string;
   name: string;
-  gmail: string;
+  email: string;
   department: string;
-  phoneNo?: string;
+  phone?: string;
   qualification?: string;
   address?: string;
   requestStatus: string;
@@ -39,7 +48,8 @@ const HODNotifications = () => {
   const [loading, setLoading] = useState(false);
   const [approvingId, setApprovingId] = useState<string | null>(null);
 
-  const fetchRequests = async () => {
+  // Wrap fetchRequests in useCallback
+  const fetchRequests = useCallback(async () => {
     setLoading(true);
     try {
       const hodDepartment = user?.department;
@@ -93,11 +103,11 @@ const HODNotifications = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [user?.department]); // Add dependency
 
   useEffect(() => {
     fetchRequests();
-  }, [user]);
+  }, [fetchRequests]); // Now fetchRequests is stable
 
   const approveTeacher = async (teacher: TeacherRequest) => {
     if (approvingId === teacher.id) return;
@@ -107,7 +117,7 @@ const HODNotifications = () => {
       await updateDoc(doc(db, "teacherRequests", teacher.id), {
         requestStatus: "approved",
         status: "approved",
-        approvedAt: new Date().toISOString(),
+       approvedAt: serverTimestamp(),
         approvedBy: user?.uid,
       });
 
@@ -116,20 +126,20 @@ const HODNotifications = () => {
         uid: teacher.id,
         teacherId: teacher.id,
         name: teacher.name,
-        gmail: teacher.gmail,
+        email: teacher.email,
         department: teacher.department,
-        phoneNo: teacher.phoneNo || "",
+        phone: teacher.phone || "",
         qualification: teacher.qualification || "",
         address: teacher.address || "",
         role: "teacher",
         requestStatus: "approved",
         approvedBy: user?.uid,
-        approvedAt: new Date().toISOString(),
+       approvedAt: serverTimestamp(),
         createdAt: teacher.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
+      await setDoc(teacherDocRef, teacherData, { merge: true });
       
-      await setDoc(teacherDocRef, teacherData);
 
       Alert.alert("Success", `✅ Teacher ${teacher.name} has been approved. They can now log in.`);
       fetchRequests();
@@ -194,7 +204,7 @@ const HODNotifications = () => {
             <Text style={[styles.name, { color: colors.textDark }]}>{item.name}</Text>
             <View style={styles.detailRow}>
               <Ionicons name="mail-outline" size={14} color={colors.textLight} />
-              <Text style={[styles.email, { color: colors.textLight }]}>{item.gmail}</Text>
+              <Text style={[styles.email, { color: colors.textLight }]}>{item.email}</Text>
             </View>
             <View style={styles.detailRow}>
               <Ionicons name="business-outline" size={14} color={colors.textLight} />
@@ -208,10 +218,10 @@ const HODNotifications = () => {
                 </Text>
               </View>
             )}
-            {item.phoneNo && (
+            {item.phone && (
               <View style={styles.detailRow}>
                 <Ionicons name="call-outline" size={14} color={colors.textLight} />
-                <Text style={[styles.department, { color: colors.textLight }]}>{item.phoneNo}</Text>
+                <Text style={[styles.department, { color: colors.textLight }]}>{item.phone}</Text>
               </View>
             )}
           </View>
@@ -254,7 +264,8 @@ const HODNotifications = () => {
             <Ionicons name="arrow-back" size={24} color="#fff" />
           </TouchableOpacity>
           <View style={styles.headerTextContainer}>
-            <Text style={styles.headerTitle}>🔔 Teacher Requests</Text>
+            {/* Fixed: Removed emoji or wrap properly */}
+            <Text style={styles.headerTitle}>Teacher Requests</Text>
             <Text style={styles.headerSubtitle}>
               {user?.department 
                 ? `${user.department} - Pending Approvals`

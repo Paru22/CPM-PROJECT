@@ -95,7 +95,7 @@ export default function TeacherSignup() {
         phone: form.phone.trim(),
         qualification: form.qualification.trim(),
         address: form.address.trim(),
-        role: "teacher",
+        role: "teacher",status: "pending",
         requestStatus: "pending",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),

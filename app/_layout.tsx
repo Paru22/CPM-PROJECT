@@ -1,8 +1,15 @@
+import React, { useEffect } from "react";
 import { Stack, useRouter, useSegments } from "expo-router";
-import { Platform, ActivityIndicator, View } from "react-native";
-import { useEffect } from "react";
+import {
+  Platform,
+  ActivityIndicator,
+  View,
+} from "react-native";
+
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
+
+// ==================== AUTH GUARD ====================
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -12,23 +19,71 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (loading) return;
 
-    const segmentPath = segments.join("/");
-    console.log("AuthGuard - Path:", segmentPath, "User:", user?.role);
+    const currentSegments = segments.map(String);
+    const segmentPath = currentSegments.join("/");
+    const currentRoute = segments[0] || "";
 
-    // Allow home page and login pages without redirect
-    if (segmentPath === "" || segmentPath === "index" || segments[0] === "Login") {
+    console.log("AuthGuard - Path:", segmentPath);
+    console.log("AuthGuard - User:", user?.role || "No user");
+    console.log("AuthGuard - Loading:", loading);
+
+    // ==================== PUBLIC ROUTES ====================
+    const isPublicRoute =
+      segmentPath === "" ||
+      segmentPath === "index" ||
+      currentRoute === "Login" ||
+      segmentPath === "Login/teacherlogin" ||
+      segmentPath === "Login/studentlogin" ||
+      segmentPath === "Login/TeacherSignup";
+
+    if (isPublicRoute) {
+      console.log("Public route, allowing access");
       return;
     }
 
-    // If not logged in and trying to access protected pages
+    // ==================== NOT LOGGED IN ====================
     if (!user) {
-      router.replace("/Login/teacherlogin");
+      console.log("No user, redirecting to login");
+      // Redirect to student login by default
+      router.replace("/Login/studentlogin");
+      return;
     }
+
+    // ==================== STUDENT ROUTE PROTECTION ====================
+    const isTeacherRoute =
+      currentSegments.includes("Teacherdashboard") ||
+      currentSegments.includes("HODdashboard");
+
+    if (user.role === "student" && isTeacherRoute) {
+      console.log("Student trying to access teacher route, redirecting");
+      router.replace("/Tabs/Studentdashboard/studentdashboard");
+      return;
+    }
+
+    // ==================== TEACHER ROUTE PROTECTION ====================
+    const isStudentRoute = currentSegments.includes("Studentdashboard");
+
+    if ((user.role === "teacher" || user.role === "hod") && isStudentRoute) {
+      console.log("Teacher trying to access student route, redirecting");
+      // Redirect to teacher dashboard
+      router.replace("/Tabs/Teacherdashboard/Teacherdashboard");
+      return;
+    }
+
+    console.log("Route allowed for:", user.role);
+
   }, [user, loading, segments, router]);
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: "#fff" }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: "#fff",
+        }}
+      >
         <ActivityIndicator size="large" color="#4A90D9" />
       </View>
     );
@@ -36,6 +91,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
+
+// ==================== ROOT LAYOUT ====================
 
 export default function RootLayout() {
   return (
@@ -50,13 +107,24 @@ export default function RootLayout() {
               animation: Platform.select({
                 ios: "slide_from_right",
                 android: "slide_from_right",
+                default: "slide_from_right",
               }),
               presentation: "card",
             }}
           >
+            {/* Home / Landing Screen */}
             <Stack.Screen name="index" />
+
+            {/* Login Screens */}
             <Stack.Screen name="Login" />
-            <Stack.Screen name="Tabs" options={{ gestureEnabled: false }} />
+
+            {/* Protected Tabs */}
+            <Stack.Screen
+              name="Tabs"
+              options={{
+                gestureEnabled: false,
+              }}
+            />
           </Stack>
         </AuthGuard>
       </AuthProvider>
