@@ -34,7 +34,6 @@ export default function StudentLogin() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
 
-  // ✅ Clear teacher credentials on mount to prevent auto-login
   useEffect(() => {
     const clearTeacherCredentials = async () => {
       try {
@@ -42,7 +41,6 @@ export default function StudentLogin() {
         if (credJson) {
           const cred = JSON.parse(credJson);
           if (cred.type === "teacher") {
-            console.log("Clearing teacher credentials before student login");
             await AsyncStorage.removeItem(AUTH_CREDENTIALS_KEY);
           }
         }
@@ -50,11 +48,9 @@ export default function StudentLogin() {
         console.error("Error clearing credentials:", error);
       }
     };
-    
     clearTeacherCredentials();
   }, []);
 
-  // Animation
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
@@ -62,16 +58,8 @@ export default function StudentLogin() {
     ]).start();
   }, []);
 
-  // Reset form
-  useEffect(() => {
-    setRollNo("");
-    setPassword("");
-  }, []);
-
-  // Redirect after login
   useEffect(() => {
     if (user && !authLoading && user.role === "student") {
-      console.log("✅ Student logged in, redirecting to dashboard");
       setTimeout(() => {
         router.replace("/Tabs/Studentdashboard/studentdashboard");
       }, 100);
@@ -97,7 +85,11 @@ export default function StudentLogin() {
   };
 
   const goToSignUp = () => {
-    router.push("../Login/studentSignup");
+    router.push("/Login/StudentSignup");
+  };
+
+  const goBack = () => {
+    router.replace("/");
   };
 
   if (authLoading) {
@@ -193,6 +185,12 @@ export default function StudentLogin() {
               <Ionicons name="person-add-outline" size={20} color={colors.primary} />
               <Text style={[styles.signUpButtonText, { color: colors.primary }]}>New Student? Register Here</Text>
             </TouchableOpacity>
+
+            {/* ✅ Back to Home - Only one button */}
+            <TouchableOpacity onPress={goBack} style={[styles.homeBtn, { backgroundColor: colors.secondary }]}>
+              <Ionicons name="arrow-back" size={20} color="#fff" />
+              <Text style={styles.homeBtnText}>Back to Home</Text>
+            </TouchableOpacity>
           </View>
         </Animated.View>
       </ScrollView>
@@ -223,4 +221,6 @@ const styles = StyleSheet.create({
   dividerText: { marginHorizontal: 16, fontSize: 12 },
   signUpButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12, borderRadius: 12, borderWidth: 1 },
   signUpButtonText: { fontSize: 14, fontWeight: "500" },
+  homeBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, marginTop: 15 },
+  homeBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

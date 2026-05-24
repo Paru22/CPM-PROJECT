@@ -21,31 +21,25 @@ import { useTheme } from "../../context/ThemeContext";
 
 const AUTH_CREDENTIALS_KEY = "@cpm_auth_credentials";
 
-// Helper function to determine dashboard path based on role
 const getDashboardPath = (userData: any): string => {
   console.log("Getting dashboard for role:", userData.role);
   
-  // HOD
   if (userData.role === "hod") {
     return "/Tabs/Teacherdashboard/HODdashboard";
   }
   
-  // Check teacherRoles array
   const teacherRoles = userData.teacherRoles || [];
   const isClassTeacher = teacherRoles.some((role: any) => role.type === "class_teacher");
   const isLabIncharge = teacherRoles.some((role: any) => role.type === "lab_incharge");
   
-  // Class Teacher Dashboard
   if (isClassTeacher) {
     return "/Tabs/Teacherdashboard/ClassTeacherDashboard";
   }
   
-  // Lab Dashboard
   if (isLabIncharge) {
     return "/Tabs/Teacherdashboard/LabInchargeDashboard";
   }
   
-  // Default Teacher Dashboard
   return "/Tabs/Teacherdashboard/Teacherdashboard";
 };
 
@@ -62,7 +56,6 @@ export default function TeacherLogin() {
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(50)).current;
 
-  // ✅ Clear student credentials on mount to prevent auto-login
   useEffect(() => {
     const clearStudentCredentials = async () => {
       try {
@@ -82,7 +75,6 @@ export default function TeacherLogin() {
     clearStudentCredentials();
   }, []);
 
-  // Animation
   useEffect(() => {
     Animated.parallel([
       Animated.timing(fadeAnim, { toValue: 1, duration: 800, useNativeDriver: true }),
@@ -90,13 +82,11 @@ export default function TeacherLogin() {
     ]).start();
   }, []);
 
-  // Reset form
   useEffect(() => {
     setEmail("");
     setPassword("");
   }, []);
 
-  // Redirect after login
   useEffect(() => {
     if (user && !authLoading) {
       const dashboardPath = getDashboardPath(user);
@@ -144,6 +134,10 @@ export default function TeacherLogin() {
     router.push("/Login/TeacherSignup");
   };
 
+  const goBack = () => {
+    router.replace("/");
+  };
+
   if (authLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: colors.background }]}>
@@ -171,7 +165,6 @@ export default function TeacherLogin() {
             }
           ]}
         >
-          {/* Logo Section */}
           <View style={styles.logoSection}>
             <LinearGradient 
               colors={[colors.primary, colors.secondary]} 
@@ -187,9 +180,7 @@ export default function TeacherLogin() {
             </Text>
           </View>
 
-          {/* Form Section */}
           <View style={[styles.formSection, { backgroundColor: colors.card }]}>
-            {/* Email Input */}
             <View style={[
               styles.inputContainer, 
               { 
@@ -216,7 +207,6 @@ export default function TeacherLogin() {
               />
             </View>
 
-            {/* Password Input */}
             <View style={[
               styles.inputContainer, 
               { 
@@ -253,7 +243,6 @@ export default function TeacherLogin() {
               </TouchableOpacity>
             </View>
 
-            {/* Forgot Password */}
             <TouchableOpacity 
               onPress={() => router.push("/Login/forgotPassword")} 
               style={styles.forgotPasswordContainer}
@@ -263,7 +252,6 @@ export default function TeacherLogin() {
               </Text>
             </TouchableOpacity>
 
-            {/* Login Button */}
             <TouchableOpacity
               style={[styles.loginButton, loading && styles.loginButtonDisabled]}
               onPress={handleLogin}
@@ -287,14 +275,12 @@ export default function TeacherLogin() {
               </LinearGradient>
             </TouchableOpacity>
 
-            {/* Divider */}
             <View style={styles.divider}>
               <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
               <Text style={[styles.dividerText, { color: colors.textLight }]}>or</Text>
               <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
             </View>
 
-            {/* Sign Up Button */}
             <TouchableOpacity 
               style={[
                 styles.signUpButton, 
@@ -312,10 +298,15 @@ export default function TeacherLogin() {
               </Text>
             </TouchableOpacity>
             
-            {/* Info Text */}
             <Text style={[styles.infoText, { color: colors.textLight }]}>
               New teacher registrations require HOD approval before you can log in.
             </Text>
+
+            {/* ✅ Back to Home Button */}
+            <TouchableOpacity onPress={goBack} style={[styles.homeBtn, { backgroundColor: colors.secondary }]}>
+              <Ionicons name="arrow-back" size={20} color="#fff" />
+              <Text style={styles.homeBtnText}>Back to Home</Text>
+            </TouchableOpacity>
           </View>
         </Animated.View>
       </ScrollView>
@@ -349,4 +340,6 @@ const styles = StyleSheet.create({
   signUpButton: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 12, borderRadius: 12, borderWidth: 1 },
   signUpButtonText: { fontSize: 14, fontWeight: "500" },
   infoText: { fontSize: 11, textAlign: "center", marginTop: 12 },
+  homeBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 14, borderRadius: 12, marginTop: 15 },
+  homeBtnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

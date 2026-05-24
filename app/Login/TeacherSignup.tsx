@@ -56,12 +56,47 @@ export default function TeacherSignup() {
     setForm({ ...form, [key]: value });
   };
 
+  // ✅ Password strength checker
+  const getPasswordStrength = (password: string): { label: string; color: string; width: number } => {
+    if (!password) return { label: "", color: "#ddd", width: 0 };
+    if (password.length < 6) return { label: "Weak", color: "#F44336", width: 25 };
+    
+    const hasUpper = /[A-Z]/.test(password);
+    const hasLower = /[a-z]/.test(password);
+    const hasNumber = /\d/.test(password);
+    const hasSpecial = /[!@#$%^&*(),.?":{}|<>]/.test(password);
+    
+    const score = [hasUpper, hasLower, hasNumber, hasSpecial].filter(Boolean).length;
+    
+    if (score === 4 && password.length >= 8) return { label: "Strong", color: "#4CAF50", width: 100 };
+    if (score >= 3 && password.length >= 6) return { label: "Good", color: "#2196F3", width: 70 };
+    if (score >= 2) return { label: "Fair", color: "#FF9800", width: 45 };
+    return { label: "Weak", color: "#F44336", width: 25 };
+  };
+
+  const strength = getPasswordStrength(form.password);
+
+  // ✅ Password validation
+  const validatePassword = (): string | null => {
+    const pwd = form.password;
+    if (!pwd) return "Password is required";
+    if (pwd.length < 6) return "Password must be at least 6 characters";
+    if (pwd.length > 20) return "Password must be less than 20 characters";
+    if (!/[A-Z]/.test(pwd)) return "Password must contain at least one uppercase letter";
+    if (!/[a-z]/.test(pwd)) return "Password must contain at least one lowercase letter";
+    if (!/\d/.test(pwd)) return "Password must contain at least one number";
+    if (!/[!@#$%^&*(),.?":{}|<>]/.test(pwd)) return "Password must contain at least one special character";
+    return null;
+  };
+
   const validateForm = (): string | null => {
     if (!form.name.trim()) return "Full name is required";
     if (!form.email.trim()) return "Email address is required";
     if (!form.email.includes("@")) return "Please enter a valid email address";
-    if (!form.password) return "Password is required";
-    if (form.password.length < 6) return "Password must be at least 6 characters";
+    
+    const passwordError = validatePassword();
+    if (passwordError) return passwordError;
+    
     if (form.password !== form.confirmPassword) return "Passwords do not match";
     if (!form.phone.trim()) return "Phone number is required";
     if (form.phone.length < 10) return "Please enter a valid phone number";
@@ -95,7 +130,7 @@ export default function TeacherSignup() {
         phone: form.phone.trim(),
         qualification: form.qualification.trim(),
         address: form.address.trim(),
-        role: "teacher",status: "pending",
+        role: "teacher",
         requestStatus: "pending",
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -158,139 +193,95 @@ export default function TeacherSignup() {
               </Text>
             </View>
 
-            {/* Personal Information */}
             <View style={styles.sectionHeader}>
               <Ionicons name="person-outline" size={20} color={colors.primary} />
               <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Personal Information</Text>
             </View>
 
             <Text style={[styles.label, { color: colors.textDark }]}>Full Name *</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-              placeholder="Enter your full name"
-              placeholderTextColor={colors.textLight}
-              value={form.name}
-              onChangeText={(v) => updateField("name", v)}
-              editable={!loading}
-            />
+            <TextInput style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="Enter your full name" placeholderTextColor={colors.textLight} value={form.name} onChangeText={(v) => updateField("name", v)} editable={!loading} />
 
             <Text style={[styles.label, { color: colors.textDark }]}>Email Address *</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-              placeholder="example@gmail.com"
-              placeholderTextColor={colors.textLight}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-              value={form.email}
-              onChangeText={(v) => updateField("email", v)}
-              editable={!loading}
-            />
+            <TextInput style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="example@gmail.com" placeholderTextColor={colors.textLight} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} value={form.email} onChangeText={(v) => updateField("email", v)} editable={!loading} />
 
             <Text style={[styles.label, { color: colors.textDark }]}>Phone Number *</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-              placeholder="Enter 10-digit phone number"
-              placeholderTextColor={colors.textLight}
-              keyboardType="phone-pad"
-              maxLength={10}
-              value={form.phone}
-              onChangeText={(v) => updateField("phone", v)}
-              editable={!loading}
-            />
+            <TextInput style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="Enter 10-digit phone number" placeholderTextColor={colors.textLight} keyboardType="phone-pad" maxLength={10} value={form.phone} onChangeText={(v) => updateField("phone", v)} editable={!loading} />
 
             <Text style={[styles.label, { color: colors.textDark }]}>Address *</Text>
-            <TextInput
-              style={[styles.input, styles.textArea, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-              placeholder="Enter your full address"
-              placeholderTextColor={colors.textLight}
-              multiline
-              numberOfLines={3}
-              value={form.address}
-              onChangeText={(v) => updateField("address", v)}
-              editable={!loading}
-            />
+            <TextInput style={[styles.input, styles.textArea, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="Enter your full address" placeholderTextColor={colors.textLight} multiline numberOfLines={3} value={form.address} onChangeText={(v) => updateField("address", v)} editable={!loading} />
 
-            {/* Professional Information */}
             <View style={styles.sectionHeader}>
               <Ionicons name="briefcase-outline" size={20} color={colors.primary} />
               <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Professional Information</Text>
             </View>
 
             <Text style={[styles.label, { color: colors.textDark }]}>Qualification *</Text>
-            <TextInput
-              style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]}
-              placeholder="e.g., M.Tech, Ph.D., B.Ed"
-              placeholderTextColor={colors.textLight}
-              value={form.qualification}
-              onChangeText={(v) => updateField("qualification", v)}
-              editable={!loading}
-            />
+            <TextInput style={[styles.input, { backgroundColor: colors.background, borderColor: colors.border, color: colors.textDark }]} placeholder="e.g., M.Tech, Ph.D., B.Ed" placeholderTextColor={colors.textLight} value={form.qualification} onChangeText={(v) => updateField("qualification", v)} editable={!loading} />
 
-            {/* ✅ DEPARTMENT DROPDOWN */}
             <Text style={[styles.label, { color: colors.textDark }]}>Department *</Text>
             <View style={[styles.pickerContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
-              <Picker
-                selectedValue={form.department}
-                onValueChange={(v) => updateField("department", v)}
-                dropdownIconColor={colors.textDark}
-                enabled={!loading}
-              >
+              <Picker selectedValue={form.department} onValueChange={(v) => updateField("department", v)} dropdownIconColor={colors.textDark} enabled={!loading}>
                 <Picker.Item label="-- Select Department --" value="" color={colors.textLight} />
-                {DEPARTMENTS.map((dept) => (
-                  <Picker.Item key={dept} label={dept} value={dept} color={colors.textDark} />
-                ))}
+                {DEPARTMENTS.map((dept) => (<Picker.Item key={dept} label={dept} value={dept} color={colors.textDark} />))}
               </Picker>
             </View>
 
-            {/* Account Security */}
             <View style={styles.sectionHeader}>
               <Ionicons name="lock-closed-outline" size={20} color={colors.primary} />
               <Text style={[styles.sectionTitle, { color: colors.textDark }]}>Account Security</Text>
             </View>
 
+            {/* Password */}
             <Text style={[styles.label, { color: colors.textDark }]}>Password *</Text>
             <View style={[styles.passwordContainer, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <TextInput
-                style={[styles.passwordInput, { color: colors.textDark }]}
-                placeholder="Min 6 characters"
-                placeholderTextColor={colors.textLight}
-                secureTextEntry={!showPassword}
-                value={form.password}
-                onChangeText={(v) => updateField("password", v)}
-                editable={!loading}
-              />
+              <TextInput style={[styles.passwordInput, { color: colors.textDark }]} placeholder="Min 6 characters" placeholderTextColor={colors.textLight} secureTextEntry={!showPassword} value={form.password} onChangeText={(v) => updateField("password", v)} editable={!loading} />
               <TouchableOpacity style={styles.eyeButton} onPress={() => setShowPassword(!showPassword)}>
                 <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.primary} />
               </TouchableOpacity>
             </View>
 
+            {/* Password Strength */}
+            {form.password.length > 0 && (
+              <View style={styles.strengthContainer}>
+                <View style={styles.strengthBar}>
+                  <View style={[styles.strengthFill, { width: `${strength.width}%`, backgroundColor: strength.color }]} />
+                </View>
+                <Text style={[styles.strengthText, { color: strength.color }]}>{strength.label}</Text>
+              </View>
+            )}
+
+            {/* Password Requirements */}
+            <View style={styles.requirementsContainer}>
+              <Text style={[styles.requirementsTitle, { color: colors.textLight }]}>Password must contain:</Text>
+              <RequirementItem met={form.password.length >= 6} text="At least 6 characters" colors={colors} />
+              <RequirementItem met={/[A-Z]/.test(form.password)} text="One uppercase letter (A-Z)" colors={colors} />
+              <RequirementItem met={/[a-z]/.test(form.password)} text="One lowercase letter (a-z)" colors={colors} />
+              <RequirementItem met={/\d/.test(form.password)} text="One number (0-9)" colors={colors} />
+              <RequirementItem met={/[!@#$%^&*(),.?":{}|<>]/.test(form.password)} text="One special character (!@#$%^&*)" colors={colors} />
+            </View>
+
+            {/* Confirm Password */}
             <Text style={[styles.label, { color: colors.textDark }]}>Confirm Password *</Text>
             <View style={[styles.passwordContainer, { borderColor: colors.border, backgroundColor: colors.background }]}>
-              <TextInput
-                style={[styles.passwordInput, { color: colors.textDark }]}
-                placeholder="Re-enter password"
-                placeholderTextColor={colors.textLight}
-                secureTextEntry={!showConfirmPassword}
-                value={form.confirmPassword}
-                onChangeText={(v) => updateField("confirmPassword", v)}
-                editable={!loading}
-              />
+              <TextInput style={[styles.passwordInput, { color: colors.textDark }]} placeholder="Re-enter password" placeholderTextColor={colors.textLight} secureTextEntry={!showConfirmPassword} value={form.confirmPassword} onChangeText={(v) => updateField("confirmPassword", v)} editable={!loading} />
               <TouchableOpacity style={styles.eyeButton} onPress={() => setShowConfirmPassword(!showConfirmPassword)}>
                 <Ionicons name={showConfirmPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.primary} />
               </TouchableOpacity>
             </View>
 
-            {/* Submit */}
-            <TouchableOpacity 
-              style={[styles.submitButton, loading && { opacity: 0.7 }]} 
-              onPress={handleSubmit} 
-              disabled={loading}
-            >
+            {/* Password Match */}
+            {form.confirmPassword.length > 0 && (
+              <View style={styles.matchContainer}>
+                <Ionicons name={form.password === form.confirmPassword ? "checkmark-circle" : "close-circle"} size={16} color={form.password === form.confirmPassword ? "#4CAF50" : "#F44336"} />
+                <Text style={[styles.matchText, { color: form.password === form.confirmPassword ? "#4CAF50" : "#F44336" }]}>
+                  {form.password === form.confirmPassword ? "Passwords match" : "Passwords do not match"}
+                </Text>
+              </View>
+            )}
+
+            <TouchableOpacity style={[styles.submitButton, loading && { opacity: 0.7 }]} onPress={handleSubmit} disabled={loading}>
               <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.gradient}>
-                {loading ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
+                {loading ? (<ActivityIndicator color="#fff" />) : (
                   <View style={styles.submitContent}>
                     <Ionicons name="send" size={18} color="#fff" />
                     <Text style={styles.submitText}>Submit Registration Request</Text>
@@ -306,7 +297,6 @@ export default function TeacherSignup() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Success Modal */}
       <Modal animationType="fade" transparent={true} visible={showSuccessModal} onRequestClose={closeSuccessModal}>
         <View style={styles.modalOverlay}>
           <View style={[styles.successModal, { backgroundColor: colors.card }]}>
@@ -314,9 +304,7 @@ export default function TeacherSignup() {
               <Ionicons name="checkmark" size={50} color="#fff" />
             </LinearGradient>
             <Text style={[styles.successTitle, { color: colors.textDark }]}>Request Submitted!</Text>
-            <Text style={[styles.successMessage, { color: colors.textLight }]}>
-              Your registration request has been forwarded to the HOD for approval.
-            </Text>
+            <Text style={[styles.successMessage, { color: colors.textLight }]}>Your registration request has been forwarded to the HOD for approval.</Text>
             <TouchableOpacity style={styles.successButton} onPress={closeSuccessModal}>
               <LinearGradient colors={[colors.primary, colors.secondary]} style={styles.successGradient}>
                 <Text style={styles.successButtonText}>Go to Login</Text>
@@ -328,6 +316,13 @@ export default function TeacherSignup() {
     </SafeAreaView>
   );
 }
+
+const RequirementItem = ({ met, text, colors }: { met: boolean; text: string; colors: any }) => (
+  <View style={styles.requirementItem}>
+    <Ionicons name={met ? "checkmark-circle" : "ellipse-outline"} size={14} color={met ? "#4CAF50" : colors.textLight} />
+    <Text style={[styles.requirementText, { color: met ? "#4CAF50" : colors.textLight }]}>{text}</Text>
+  </View>
+);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -350,6 +345,16 @@ const styles = StyleSheet.create({
   passwordContainer: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 12, marginBottom: 15 },
   passwordInput: { flex: 1, padding: 13, fontSize: 15 },
   eyeButton: { padding: 10 },
+  strengthContainer: { flexDirection: "row", alignItems: "center", marginBottom: 8, gap: 10 },
+  strengthBar: { flex: 1, height: 4, backgroundColor: "#ddd", borderRadius: 2, overflow: "hidden" },
+  strengthFill: { height: "100%", borderRadius: 2 },
+  strengthText: { fontSize: 11, fontWeight: "600", width: 50, textAlign: "right" },
+  requirementsContainer: { marginBottom: 12, padding: 10 },
+  requirementsTitle: { fontSize: 12, fontWeight: "600", marginBottom: 6 },
+  requirementItem: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 4 },
+  requirementText: { fontSize: 12 },
+  matchContainer: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 12 },
+  matchText: { fontSize: 12 },
   submitButton: { marginTop: 25, borderRadius: 12, overflow: "hidden", elevation: 3 },
   gradient: { paddingVertical: 15, alignItems: "center" },
   submitContent: { flexDirection: "row", alignItems: "center", gap: 8 },
