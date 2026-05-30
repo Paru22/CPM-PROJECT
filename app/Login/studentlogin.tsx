@@ -156,7 +156,22 @@ export default function StudentLogin() {
                 <Ionicons name={showPassword ? "eye-off-outline" : "eye-outline"} size={20} color={colors.textLight} />
               </TouchableOpacity>
             </View>
-
+                <View style={[styles.inputContainer, { backgroundColor: colors.background, borderColor: colors.border }]}></View>
+ <TouchableOpacity
+  onPress={() => router.push("/Login/forgotPassword")}
+  style={styles.forgotPasswordContainer}
+>
+  <Text
+    style={[
+      styles.forgotPasswordText,
+      { color: colors.primary }
+    ]}
+  >
+    Forgot Password?
+  </Text>
+</TouchableOpacity>           
+            
+            
             <TouchableOpacity
               style={[styles.loginButton, loading && styles.loginButtonDisabled]}
               onPress={handleLogin}
@@ -212,6 +227,15 @@ const styles = StyleSheet.create({
   inputIcon: { marginRight: 12 },
   input: { flex: 1, paddingVertical: 14, fontSize: 15 },
   eyeIcon: { padding: 8 },
+  forgotPasswordContainer: {
+  alignSelf: "flex-end",
+  marginBottom: 24,
+},
+
+forgotPasswordText: {
+  fontSize: 13,
+  fontWeight: "500",
+},
   loginButton: { borderRadius: 12, overflow: "hidden", elevation: 5 },
   loginButtonDisabled: { opacity: 0.7 },
   loginGradient: { flexDirection: "row", paddingVertical: 14, justifyContent: "center", alignItems: "center", gap: 8 },

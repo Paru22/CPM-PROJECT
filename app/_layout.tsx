@@ -9,8 +9,6 @@ import {
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { ThemeProvider } from "../context/ThemeContext";
 
-// ==================== AUTH GUARD ====================
-
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const segments = useSegments();
@@ -21,57 +19,56 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     const currentSegments = segments.map(String);
     const segmentPath = currentSegments.join("/");
-    const currentRoute = segments[0] || "";
 
     console.log("AuthGuard - Path:", segmentPath);
     console.log("AuthGuard - User:", user?.role || "No user");
     console.log("AuthGuard - Loading:", loading);
 
-    // ==================== PUBLIC ROUTES ====================
+    // Public routes
     const isPublicRoute =
       segmentPath === "" ||
       segmentPath === "index" ||
-      currentRoute === "Login" ||
-      segmentPath === "Login/teacherlogin" ||
       segmentPath === "Login/studentlogin" ||
-      segmentPath === "Login/TeacherSignup";
+      segmentPath === "Login/teacherlogin" ||
+      segmentPath === "Login/StudentSignup" ||
+      segmentPath === "Login/TeacherSignup" ||
+      segmentPath === "Login/forgotPassword";
 
     if (isPublicRoute) {
       console.log("Public route, allowing access");
       return;
     }
 
-    // ==================== NOT LOGGED IN ====================
+    // Not logged in
     if (!user) {
       console.log("No user, redirecting to login");
-      // Redirect to student login by default
       router.replace("/Login/studentlogin");
       return;
     }
 
-    // ==================== STUDENT ROUTE PROTECTION ====================
+    // Student protection
     const isTeacherRoute =
       currentSegments.includes("Teacherdashboard") ||
       currentSegments.includes("HODdashboard");
 
     if (user.role === "student" && isTeacherRoute) {
-      console.log("Student trying to access teacher route, redirecting");
       router.replace("/Tabs/Studentdashboard/studentdashboard");
       return;
     }
 
-    // ==================== TEACHER ROUTE PROTECTION ====================
-    const isStudentRoute = currentSegments.includes("Studentdashboard");
+    // Teacher protection
+    const isStudentRoute =
+      currentSegments.includes("Studentdashboard");
 
-    if ((user.role === "teacher" || user.role === "hod") && isStudentRoute) {
-      console.log("Teacher trying to access student route, redirecting");
-      // Redirect to teacher dashboard
+    if (
+      (user.role === "teacher" || user.role === "hod") &&
+      isStudentRoute
+    ) {
       router.replace("/Tabs/Teacherdashboard/Teacherdashboard");
       return;
     }
 
     console.log("Route allowed for:", user.role);
-
   }, [user, loading, segments, router]);
 
   if (loading) {
@@ -84,15 +81,16 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
           backgroundColor: "#fff",
         }}
       >
-        <ActivityIndicator size="large" color="#4A90D9" />
+        <ActivityIndicator
+          size="large"
+          color="#4A90D9"
+        />
       </View>
     );
   }
 
   return <>{children}</>;
 }
-
-// ==================== ROOT LAYOUT ====================
 
 export default function RootLayout() {
   return (
@@ -112,13 +110,10 @@ export default function RootLayout() {
               presentation: "card",
             }}
           >
-            {/* Home / Landing Screen */}
+            {/* Landing Screen */}
             <Stack.Screen name="index" />
 
-            {/* Login Screens */}
-            <Stack.Screen name="Login" />
-
-            {/* Protected Tabs */}
+            {/* Protected Area */}
             <Stack.Screen
               name="Tabs"
               options={{
