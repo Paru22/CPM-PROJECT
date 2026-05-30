@@ -1,29 +1,30 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import {
-    collection,
-    doc,
-    getDoc,
-    getDocs,
-    query,
-    where,
+  collection,
+  doc,
+  getDoc,
+  getDocs,
+  query,
+  where,
 } from "firebase/firestore";
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Image,
-    RefreshControl,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-    Animated,
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Image,
+  RefreshControl,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { db, auth } from "../../../config/firebaseConfig.native";
-import { useTheme } from "../../../context/ThemeContext";
+import { auth, db } from "../../../config/firebaseConfig.native";
 import { useAuth } from "../../../context/AuthContext";
+import { useTheme } from "../../../context/ThemeContext";
+import SubjectManagementModal from "./SubjectManagementModal";
 
 interface TeacherType {
   id: string;
@@ -55,6 +56,7 @@ export default function HODDashboard() {
   const [pendingRequests, setPendingRequests] = useState(0);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showSubjectModal, setShowSubjectModal] = useState(false);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(40)).current;
 
@@ -175,7 +177,7 @@ export default function HODDashboard() {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[colors.primary]} />}
         style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}
       >
-        {/* Profile Card - HOD's own image from settings */}
+        {/* Profile Card */}
         <View style={[styles.card, { backgroundColor: colors.card }]}>
           <Image
             source={
@@ -261,9 +263,10 @@ export default function HODDashboard() {
             )}
           </TouchableOpacity>
 
+          {/* ✅ Subjects - Opens Modal */}
           <TouchableOpacity
             style={[styles.btn, { backgroundColor: colors.primary }]}
-            onPress={() => navigateTo("/Tabs/Teacherdashboard/SubjectManagementModal")}
+            onPress={() => setShowSubjectModal(true)}
           >
             <Ionicons name="book-outline" size={28} color="#fff" />
             <Text style={styles.btnText}>Subjects</Text>
@@ -295,6 +298,12 @@ export default function HODDashboard() {
           <Text style={styles.logoutText}>Logout</Text>
         </TouchableOpacity>
       </Animated.ScrollView>
+
+      {/* ✅ Subject Management Modal */}
+      <SubjectManagementModal 
+        visible={showSubjectModal} 
+        onClose={() => setShowSubjectModal(false)} 
+      />
     </SafeAreaView>
   );
 }
